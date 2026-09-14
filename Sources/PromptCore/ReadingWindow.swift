@@ -26,16 +26,17 @@ public enum ReadingWindow: Sendable {
         return start..<min(start + pageSize, wordCount)
     }
 
-    /// Assign every token a page. Cues ride with the next word so a
-    /// `[pause]` before word N appears on N's page; trailing cues join
-    /// the last page. Single pass: word indices are assigned walking
-    /// forward, pages walking back. (A previous version called a linear
-    /// scan per token — O(n²) on every render. Don't regress this.)
+    /// Assign every token a page. Cues and paragraph breaks ride with the
+    /// next word so a `[pause]` before word N appears on N's page;
+    /// trailing cues join the last page. Single pass: word indices are
+    /// assigned walking forward, pages walking back. (A previous version
+    /// called a linear scan per token — O(n²) on every render. Don't
+    /// regress this.)
     public static func tokenPages(_ tokens: [ScriptToken], pageSize: Int) -> [Int] {
         guard pageSize > 0, !tokens.isEmpty else { return tokens.map { _ in 0 } }
         var wordIndexAt = Array(repeating: -1, count: tokens.count)
         var wordCount = 0
-        for i in tokens.indices where !tokens[i].isCue {
+        for i in tokens.indices where tokens[i].isWord {
             wordIndexAt[i] = wordCount
             wordCount += 1
         }
@@ -43,7 +44,7 @@ public enum ReadingWindow: Sendable {
         var pages = Array(repeating: 0, count: tokens.count)
         var nextWord = wordCount
         for i in tokens.indices.reversed() {
-            if tokens[i].isCue {
+            if !tokens[i].isWord {
                 let w = min(nextWord, max(0, wordCount - 1))
                 pages[i] = wordCount == 0 ? 0 : min(w / pageSize, lastPage)
             } else {
@@ -108,5 +109,37 @@ public enum ReadingWindow: Sendable {
         let total = Int((Double(wordCount) / wordsPerSecond).rounded())
         if total < 60 { return "\(total) sec" }
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    // MARK: - Pause cues
+
+    /// Word indices that follow a [pause]/[wait]/[hold]-style cue. The
+    /// driver auto-pauses when the highlight steps onto one of these.
+    public static func pauseCueWordIndices(_ tokens: [ScriptToken]) -> Set<Int> {
+        var out: Set<Int> = []
+        var wordCount = 0
+        var armed = false
+        for t in tokens {
+            switch t {
+            case .word:
+                if armed { out.insert(wordCount) }
+                armed = false
+                wordCount += 1
+            case .cue(let c):
+                if isPauseCue(c) { armed = true }
+            case .paragraphBreak:
+                break
+            }
+        }
+        return out
+    }
+
+    public static func isPauseCue(_ cue: String) -> Bool {
+        let text = cue.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .lowercased()
+        return text.contains("pause") || text.contains("wait")
+            || text.contains("hold") || text == "stop"
+            || text.contains("breath") || text.contains("break")
     }
 }

@@ -80,10 +80,22 @@ public struct CueSettings: Codable, Equatable, Sendable {
     public var textColor: TextColor = .paper
     public var surfaceStyle: SurfaceStyle = .espresso
     public var lineSpacing: Double = 0.5
+    public var paragraphSpacing: Double = 0.5
     public var letterSpacing: Double = 0
     public var readingWidth: Double? = nil
     public var textAlignment: TextAlignment = .leading
     public var smoothScroll: Bool = true
+    public var scrollSpeed: Double = 1.0 // multiplier on smooth-scroll animation
+    public var wordsPerMinute: Double = 150 // persisted reading speed (30…480)
+    public var popOutOnPlay: Bool = true
+    /// Human pacing: long words linger, clause ends breathe. Off = steady robot rate.
+    public var naturalPacing: Bool = true
+    /// Hold-to-catch-up multiplier (1.2…2.5×) while the boost key/button is held.
+    public var catchUpBoost: Double = 1.6
+    /// Auto-pause when the highlight reaches a [pause]/[wait]/[hold] cue.
+    public var pauseOnPauseCues: Bool = false
+    /// Scroll wheel releases Follow instead of fighting auto-scroll.
+    public var releaseFollowOnScroll: Bool = true
     public var highlightCurrent: Bool = true
     public var highlightStyle: HighlightStyle = .pill
     public var showCues: Bool = true
@@ -93,6 +105,20 @@ public struct CueSettings: Codable, Equatable, Sendable {
 
     /// Rendering window, clamped so a corrupt pref can't explode the view tree.
     public var clampedPageSize: Int { min(600, max(50, pageSize)) }
+
+    /// Engine speed in words/sec derived from the persisted WPM.
+    public var wordsPerSecond: Double { max(0.5, min(8.0, wordsPerMinute / 60.0)) }
+
+    /// Smooth-scroll animation duration: faster scrollSpeed snaps quicker.
+    public var scrollAnimationDuration: Double {
+        let speed = max(0.25, min(2.0, scrollSpeed))
+        return 0.3 / speed
+    }
+
+    public var clampedParagraphSpacing: Double { min(1.5, max(0, paragraphSpacing)) }
+
+    /// Hold-to-boost multiplier, clamped so a corrupt pref can't 10× the reader.
+    public var clampedCatchUpBoost: Double { min(2.5, max(1.2, catchUpBoost)) }
 
     public init() {}
 
@@ -106,6 +132,8 @@ public struct CueSettings: Codable, Equatable, Sendable {
         case fontWeight, textColor, surfaceStyle, lineSpacing, letterSpacing
         case readingWidth, textAlignment, smoothScroll, highlightCurrent, highlightStyle
         case showCues, hidePunctuation, showProgress, showCenterLine
+        case paragraphSpacing, scrollSpeed, wordsPerMinute, popOutOnPlay
+        case naturalPacing, catchUpBoost, pauseOnPauseCues, releaseFollowOnScroll
         case legacyAutoNextPage = "autoNextPage"
     }
 
@@ -148,6 +176,14 @@ public struct CueSettings: Codable, Equatable, Sendable {
         surfaceStyle = decode(.surfaceStyle, default: defaults.surfaceStyle)
         lineSpacing = decode(.lineSpacing, default: defaults.lineSpacing)
         letterSpacing = decode(.letterSpacing, default: defaults.letterSpacing)
+        paragraphSpacing = decode(.paragraphSpacing, default: defaults.paragraphSpacing)
+        scrollSpeed = decode(.scrollSpeed, default: defaults.scrollSpeed)
+        wordsPerMinute = decode(.wordsPerMinute, default: defaults.wordsPerMinute)
+        popOutOnPlay = decode(.popOutOnPlay, default: defaults.popOutOnPlay)
+        naturalPacing = decode(.naturalPacing, default: defaults.naturalPacing)
+        catchUpBoost = decode(.catchUpBoost, default: defaults.catchUpBoost)
+        pauseOnPauseCues = decode(.pauseOnPauseCues, default: defaults.pauseOnPauseCues)
+        releaseFollowOnScroll = decode(.releaseFollowOnScroll, default: defaults.releaseFollowOnScroll)
         readingWidth = decode(.readingWidth, default: defaults.readingWidth)
         textAlignment = decode(.textAlignment, default: defaults.textAlignment)
         smoothScroll = decode(.smoothScroll, default: defaults.smoothScroll)
@@ -189,7 +225,15 @@ public struct CueSettings: Codable, Equatable, Sendable {
         try c.encode(textColor, forKey: .textColor)
         try c.encode(surfaceStyle, forKey: .surfaceStyle)
         try c.encode(lineSpacing, forKey: .lineSpacing)
+        try c.encode(paragraphSpacing, forKey: .paragraphSpacing)
         try c.encode(letterSpacing, forKey: .letterSpacing)
+        try c.encode(scrollSpeed, forKey: .scrollSpeed)
+        try c.encode(wordsPerMinute, forKey: .wordsPerMinute)
+        try c.encode(popOutOnPlay, forKey: .popOutOnPlay)
+        try c.encode(naturalPacing, forKey: .naturalPacing)
+        try c.encode(catchUpBoost, forKey: .catchUpBoost)
+        try c.encode(pauseOnPauseCues, forKey: .pauseOnPauseCues)
+        try c.encode(releaseFollowOnScroll, forKey: .releaseFollowOnScroll)
         try c.encode(readingWidth, forKey: .readingWidth)
         try c.encode(textAlignment, forKey: .textAlignment)
         try c.encode(smoothScroll, forKey: .smoothScroll)

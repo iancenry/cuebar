@@ -50,9 +50,15 @@ struct ContentView: View {
                            overlay: overlay, voice: voice, tokens: tokens,
                            mode: $mode, pick: pick)
         }
+        .background {
+            BoostKeys(engine: engine, settings: settings, mode: $mode)
+        }
         .onAppear {
             if let doc = scripts.selected { showDraft(doc) }
             sharing.setHidden(settings.settings.hideFromShare)
+            // Persisted prefs are the source of truth; the engine starts live.
+            engine.setSpeed(settings.settings.wordsPerSecond)
+            engine.naturalPacing = settings.settings.naturalPacing
         }
         .onChange(of: scripts.selectedID) { _, new in
             guard let id = new, let doc = doc(matching: id) else {

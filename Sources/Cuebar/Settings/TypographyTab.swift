@@ -4,23 +4,11 @@ import PromptCore
 struct TypographyTab: View {
     @Bindable var settings: SettingsStore
 
-    private var previewSize: Double { settings.settings.textSize.points }
-
     var body: some View {
         Form {
             Section("Preview") {
-                FlowLayout(spacing: 6, lineSpacing: 10) {
-                    WordPill(word: "Welcome", isPast: false, isCurrent: true,
-                             settings: settings.settings, fontSize: previewSize)
-                    WordPill(word: "to", isPast: false, isCurrent: false,
-                             settings: settings.settings, fontSize: previewSize)
-                    WordPill(word: "read", isPast: false, isCurrent: false,
-                             settings: settings.settings, fontSize: previewSize)
-                    CueBadge(text: "pause", settings: settings.settings, fontSize: previewSize)
-                    WordPill(word: "calmly", isPast: true, isCurrent: false,
-                             settings: settings.settings, fontSize: previewSize)
-                }
-                .padding(.vertical, 8)
+                ReadingPreview(settings: settings.settings)
+                    .padding(.vertical, 4)
             }
             Section("Font") {
                 Picker("Family", selection: $settings.settings.fontFamily) {
@@ -78,6 +66,14 @@ struct TypographyTab: View {
                         Text("Line spacing")
                     }.labelsHidden()
                 }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Paragraph spacing \(settings.settings.paragraphSpacing, specifier: "%.2f")").font(.callout)
+                    Slider(value: $settings.settings.paragraphSpacing, in: 0...1.5, step: 0.05) {
+                        Text("Paragraph spacing")
+                    }.labelsHidden()
+                }
+                Text("Paragraph gap applies between blank-line separated blocks.")
+                    .font(.caption).foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Letter spacing \(settings.settings.letterSpacing, specifier: "%.1f")").font(.callout)
                     Slider(value: $settings.settings.letterSpacing, in: 0...1.5, step: 0.1) {

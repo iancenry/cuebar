@@ -1,5 +1,8 @@
 import SwiftUI
 import PromptCore
+#if os(macOS)
+import AppKit
+#endif
 
 /// Reading view shared by the main window and the floating overlay.
 /// Renders one page at a time (see ReadingWindow) so a 5,000-word
@@ -24,9 +27,12 @@ struct PrompterBody: View {
     /// window has no other page controls.
     var showsPageControls: Bool = true
     @State private var page = 0
+#if os(macOS)
+    @State private var wheelMonitor: Any?
+#endif
 
     private var pageSize: Int { settings.settings.clampedPageSize }
-    private var wordCount: Int { tokens.reduce(0) { $0 + ($1.isCue ? 0 : 1) } }
+    private var wordCount: Int { tokens.reduce(0) { $0 + ($1.isWord ? 1 : 0) } }
     private var pageCount: Int { ReadingWindow.pageCount(wordCount: wordCount, pageSize: pageSize) }
     private var fontSize: Double { settings.settings.textSize.points * settings.settings.prompterScale }
 
@@ -54,11 +60,8 @@ struct PrompterBody: View {
                             description: Text("Pick a script on the left to start prompting."))
                             .padding(.top, 80)
                     } else {
-                        FlowLayout(spacing: max(6, fontSize * 0.22),
-                                   lineSpacing: fontSize * settings.settings.lineSpacing) {
-                            TokenViews(engine: engine, tokens: tokens, page: visiblePage,
-                                       pageSize: pageSize, settings: settings.settings)
-                        }
+                        TokenPageView(engine: engine, tokens: tokens, page: visiblePage,
+                                      pageSize: pageSize, settings: settings.settings)
                         .padding(.horizontal, 32)
                         .padding(.vertical, 24)
                         .frame(maxWidth: settings.settings.readingWidth ?? .infinity,
@@ -78,7 +81,7 @@ struct PrompterBody: View {
                     guard follow, let idx = new else { return }
                     DispatchQueue.main.async {
                         if settings.settings.smoothScroll {
-                            withAnimation(.easeOut(duration: 0.3)) {
+                            withAnimation(.easeOut(duration: settings.settings.scrollAnimationDuration)) {
                                 proxy.scrollTo("w-\(idx)", anchor: .center)
                             }
                         } else {
@@ -116,7 +119,36 @@ struct PrompterBody: View {
             // shared by every Follow toggle in every window.
             if new { page = enginePage }
         }
+#if os(macOS)
+        .onAppear { installWheelMonitor() }
+        .onDisappear { removeWheelMonitor() }
+#endif
     }
+
+#if os(macOS)
+    /// A nudge of the wheel means "let me look around" — release Follow so
+    /// auto-scroll stops fighting the reader. Playback keeps running;
+    /// Resume follow jumps back to the highlight. Pass-through: the wheel
+    /// event itself is never swallowed.
+    private func installWheelMonitor() {
+        removeWheelMonitor()
+        let followBinding = $follow
+        wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [settings] event in
+            guard followBinding.wrappedValue,
+                  settings.settings.releaseFollowOnScroll,
+                  abs(event.scrollingDeltaY) + abs(event.scrollingDeltaX) > 0.5 else {
+                return event
+            }
+            Task { @MainActor in followBinding.wrappedValue = false }
+            return event
+        }
+    }
+
+    private func removeWheelMonitor() {
+        if let m = wheelMonitor { NSEvent.removeMonitor(m) }
+        wheelMonitor = nil
+    }
+#endif
 
     private var header: some View {
         // Full controls when they fit, slim pills-only row when squeezed.
@@ -138,14 +170,19 @@ struct PrompterBody: View {
             }
             Spacer()
             if showSpeed {
-                Text("\(Int((engine.wordsPerSecond * 60).rounded())) wpm")
-                    .font(.callout).foregroundStyle(CuePalette.muted).monospacedDigit()
+                Text(engine.boostMultiplier > 1.0
+                     ? "\(Int((settings.settings.wordsPerMinute * engine.boostMultiplier).rounded())) wpm ▲"
+                     : "\(Int(settings.settings.wordsPerMinute.rounded())) wpm")
+                    .font(.callout).foregroundStyle(engine.boostMultiplier > 1.0 ? CuePalette.peach : CuePalette.muted).monospacedDigit()
                     .fixedSize()
                 Stepper("Speed", value: Binding(
-                    get: { engine.wordsPerSecond },
-                    set: { engine.setSpeed($0) }
-                ), in: 0.5...8, step: 0.5).labelsHidden().controlSize(.small)
-                .accessibilityValue("\(Int((engine.wordsPerSecond * 60).rounded())) words per minute")
+                    get: { settings.settings.wordsPerMinute },
+                    set: {
+                        settings.settings.wordsPerMinute = min(480, max(30, $0))
+                        engine.setSpeed(settings.settings.wordsPerSecond)
+                    }
+                ), in: 30...480, step: 5).labelsHidden().controlSize(.small)
+                .accessibilityValue("\(Int(settings.settings.wordsPerMinute.rounded())) words per minute")
             }
             Toggle("Follow", isOn: $follow)
                 .toggleStyle(.switch).controlSize(.small)
@@ -191,8 +228,9 @@ struct PageControls: View {
 }
 
 /// Maps the token stream to views for one page. Only `.word` tokens
-/// consume a tracking index; cues ride along for display (or hide when
-/// cues are off — paging math always runs on the full stream).
+/// consume a tracking index; cues and paragraph breaks ride along for
+/// display (cues hide when cues are off — paging math always runs on
+/// the full stream).
 struct TokenViews: View {
     @Bindable var engine: PromptEngine
     let tokens: [ScriptToken]
@@ -202,26 +240,45 @@ struct TokenViews: View {
 
     private var fontSize: Double { settings.textSize.points * settings.prompterScale }
 
-    private struct Row {
+    struct Row {
         let token: ScriptToken
-        let wordIndex: Int // -1 for cues
+        let wordIndex: Int // -1 for cues and breaks
         let page: Int
     }
 
-    private func rows() -> [Row] {
+    func rows() -> [Row] {
         let pages = ReadingWindow.tokenPages(tokens, pageSize: pageSize)
         var out: [Row] = []
         out.reserveCapacity(tokens.count)
         var wi = 0
         for (i, t) in tokens.enumerated() {
-            if t.isCue {
-                out.append(Row(token: t, wordIndex: -1, page: pages[i]))
-            } else {
+            if t.isWord {
                 out.append(Row(token: t, wordIndex: wi, page: pages[i]))
                 wi += 1
+            } else {
+                out.append(Row(token: t, wordIndex: -1, page: pages[i]))
             }
         }
-        return out.filter { $0.page == page && (settings.showCues || !$0.token.isCue) }
+        return out.filter {
+            $0.page == page
+                && ($0.token.isParagraphBreak || settings.showCues || !$0.token.isCue)
+        }
+    }
+
+    /// Page rows split on paragraph breaks for VStack rendering.
+    func paragraphs() -> [[Row]] {
+        var groups: [[Row]] = [[]]
+        for row in rows() {
+            if row.token.isParagraphBreak {
+                groups.append([])
+            } else {
+                groups[groups.count - 1].append(row)
+            }
+        }
+        // A page boundary can strand a leading break; drop empty groups
+        // but keep at least one so empty pages still render.
+        let nonEmpty = groups.filter { !$0.isEmpty }
+        return nonEmpty.isEmpty ? [[]] : nonEmpty
     }
 
     var body: some View {
@@ -237,6 +294,52 @@ struct TokenViews: View {
                     .onTapGesture { engine.jumpTo(wordIndex: row.wordIndex) }
             case .cue(let c):
                 CueBadge(text: CueBadge.label(for: c), settings: settings, fontSize: fontSize)
+            case .paragraphBreak:
+                EmptyView()
+            }
+        }
+    }
+}
+
+/// Page renderer with real paragraph gaps. Each paragraph is its own
+/// FlowLayout; the VStack spacing is paragraphSpacing × fontSize so the
+/// Typography slider is immediately visible in the prompter.
+struct TokenPageView: View {
+    @Bindable var engine: PromptEngine
+    let tokens: [ScriptToken]
+    let page: Int
+    let pageSize: Int
+    let settings: CueSettings
+
+    private var fontSize: Double { settings.textSize.points * settings.prompterScale }
+
+    var body: some View {
+        let helper = TokenViews(engine: engine, tokens: tokens, page: page,
+                                pageSize: pageSize, settings: settings)
+        let paras = helper.paragraphs()
+        let current = engine.currentWordIndex ?? -1
+        VStack(alignment: settings.textAlignment == .center ? .center : .leading,
+               spacing: fontSize * settings.clampedParagraphSpacing) {
+            ForEach(Array(paras.enumerated()), id: \.offset) { _, para in
+                FlowLayout(spacing: max(6, fontSize * 0.22),
+                           lineSpacing: fontSize * settings.lineSpacing) {
+                    ForEach(Array(para.enumerated()), id: \.offset) { _, row in
+                        switch row.token {
+                        case .word(let w):
+                            WordPill(word: w,
+                                     isPast: row.wordIndex < current,
+                                     isCurrent: row.wordIndex == current,
+                                     settings: settings,
+                                     fontSize: fontSize)
+                                .id("w-\(row.wordIndex)")
+                                .onTapGesture { engine.jumpTo(wordIndex: row.wordIndex) }
+                        case .cue(let c):
+                            CueBadge(text: CueBadge.label(for: c), settings: settings, fontSize: fontSize)
+                        case .paragraphBreak:
+                            EmptyView()
+                        }
+                    }
+                }
             }
         }
     }

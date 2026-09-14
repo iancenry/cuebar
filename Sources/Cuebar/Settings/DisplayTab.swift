@@ -6,6 +6,12 @@ struct DisplayTab: View {
 
     var body: some View {
         Form {
+            Section("Preview") {
+                ReadingPreview(settings: settings.settings)
+                    .padding(.vertical, 4)
+                Text("Live preview — reflects Display, Typography, and Reading.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Picker("Overlay", selection: $settings.settings.overlayMode) {
                 Text("Notch").tag(CueSettings.OverlayMode.notch)
                 Text("Floating").tag(CueSettings.OverlayMode.floating)
@@ -31,9 +37,14 @@ struct DisplayTab: View {
             Toggle("Always on top", isOn: $settings.settings.alwaysOnTop)
             Text("Floating and notch panels stay above other apps. Off lets them slide behind.")
                 .font(.caption).foregroundStyle(.secondary)
-            Toggle("Transparency", isOn: $settings.settings.transparencyEnabled)
+            Section("Pop-out") {
+                Toggle("Pop out overlay when pressing Play", isOn: $settings.settings.popOutOnPlay)
+                Text("Manual pop-out lives in the transport bar (expand icon) and the top-bar gear menu — pressing Play auto-presents when this is on.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Toggle("Window opacity", isOn: $settings.settings.transparencyEnabled)
             Slider(value: $settings.settings.transparencyAmount, in: 0.3...1.0) {
-                Text("Amount")
+                Text("Opacity \(Int(settings.settings.transparencyAmount * 100))%")
             }
             .disabled(!settings.settings.transparencyEnabled)
             Text("Applies instantly to the open overlay.")
@@ -63,6 +74,12 @@ struct DisplayTab: View {
                 }
                 Text("Dragging the floating panel remembers its size and position.")
                     .font(.caption).foregroundStyle(.secondary)
+                if settings.settings.floatingOriginX != nil {
+                    Button("Forget saved position") {
+                        settings.settings.floatingOriginX = nil
+                        settings.settings.floatingOriginY = nil
+                    }
+                }
             }
             Button("Reset All") { settings.reset() }
         }

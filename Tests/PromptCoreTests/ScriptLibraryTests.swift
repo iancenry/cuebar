@@ -61,6 +61,10 @@ import PromptCore
         #expect(s.highlightStyle == .pill)
         #expect(s.floatingOriginX == nil)
         #expect(s.readingWidth == nil)
+        #expect(s.naturalPacing == true)
+        #expect(s.catchUpBoost == 1.6)
+        #expect(s.pauseOnPauseCues == false)
+        #expect(s.releaseFollowOnScroll == true)
     }
 
     @Test func corruptFieldFallsBackToDefault() throws {

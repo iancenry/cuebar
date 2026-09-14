@@ -16,6 +16,8 @@ struct TransportBar: View {
         max(5, Int((10 * engine.wordsPerSecond).rounded()))
     }
 
+    private var boosting: Bool { engine.boostMultiplier > 1.0 }
+
     var body: some View {
         VStack(spacing: 0) {
             ProgressView(value: engine.progress)
@@ -25,16 +27,22 @@ struct TransportBar: View {
                 .accessibilityLabel("Progress")
             HStack {
                 HStack(spacing: 4) {
-                    Text("\(Int((engine.wordsPerSecond * 60).rounded())) wpm")
-                        .font(.callout).foregroundStyle(CuePalette.muted).monospacedDigit()
+                    Text(boosting
+                         ? "\(Int((settings.settings.wordsPerMinute * engine.boostMultiplier).rounded())) wpm ▲"
+                         : "\(Int(settings.settings.wordsPerMinute.rounded())) wpm")
+                        .font(.callout).foregroundStyle(boosting ? CuePalette.peach : CuePalette.muted).monospacedDigit()
                         .fixedSize()
                     Stepper("Speed", value: Binding(
-                        get: { engine.wordsPerSecond },
-                        set: { engine.setSpeed($0) }
-                    ), in: 0.5...8, step: 0.5)
+                        get: { settings.settings.wordsPerMinute },
+                        set: {
+                            settings.settings.wordsPerMinute = min(480, max(30, $0))
+                            engine.setSpeed(settings.settings.wordsPerSecond)
+                        }
+                    ), in: 30...480, step: 5)
                     .labelsHidden()
                     .controlSize(.small)
-                    .accessibilityValue("\(Int((engine.wordsPerSecond * 60).rounded())) words per minute")
+                    .accessibilityValue("\(Int(settings.settings.wordsPerMinute.rounded())) words per minute")
+                    HoldBoostButton(engine: engine, settings: settings)
                 }
                 Spacer()
                 SkipButton(icon: "backward.fill", caption: "10s") {
@@ -81,8 +89,45 @@ struct TransportBar: View {
     }
 }
 
-struct SkipButton: View {
-    let icon: String
+/// Hold-to-catch-up: press and hold for a momentary speed multiplier.
+/// Releasing eases back via the engine's velocity filter — no jolt.
+/// Keyboard twin: hold → (right arrow) in Perform mode.
+struct HoldBoostButton: View {
+    @Bindable var engine: PromptEngine
+    @Bindable var settings: SettingsStore
+    @State private var holding = false
+
+    var body: some View {
+        Text("\(settings.settings.clampedCatchUpBoost, specifier: "%.1f")×")
+            .font(.callout.monospacedDigit().weight(holding ? .bold : .regular))
+            .foregroundStyle(holding ? CuePalette.onHighlight : CuePalette.muted)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(holding ? CuePalette.peach : CuePalette.card, in: Capsule())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in press() }
+                    .onEnded { _ in release() }
+            )
+            .onDisappear { release() }
+            .accessibilityLabel("Hold to temporarily speed up")
+            .help("Hold to catch up (\(settings.settings.clampedCatchUpBoost, specifier: "%.1f")×). Keyboard: hold →.")
+    }
+
+    private func press() {
+        guard !holding else { return }
+        holding = true
+        engine.setBoost(settings.settings.clampedCatchUpBoost)
+    }
+
+    private func release() {
+        guard holding else { return }
+        holding = false
+        engine.setBoost(1.0)
+    }
+}
+
+struct SkipButton: View {    let icon: String
     let caption: String
     var action: () -> Void
 

@@ -29,8 +29,10 @@ struct TopBar: View {
             if settings.settings.guidance != .classic {
                 MicStatus(voice: voice, compact: true)
             }
-            Text("\(Int((engine.wordsPerSecond * 60).rounded())) wpm")
-                .font(.callout).foregroundStyle(CuePalette.muted).monospacedDigit()
+            Text(engine.boostMultiplier > 1.0
+                 ? "\(Int((settings.settings.wordsPerMinute * engine.boostMultiplier).rounded())) wpm ▲"
+                 : "\(Int(settings.settings.wordsPerMinute.rounded())) wpm")
+                .font(.callout).foregroundStyle(engine.boostMultiplier > 1.0 ? CuePalette.peach : CuePalette.muted).monospacedDigit()
                 .fixedSize()
             Menu {
                 Picker("Display", selection: $settings.settings.overlayMode) {

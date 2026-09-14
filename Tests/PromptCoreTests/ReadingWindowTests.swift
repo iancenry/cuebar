@@ -62,4 +62,20 @@ import PromptCore
         #expect(ReadingWindow.durationString(wordCount: 642, wordsPerSecond: 2.5) == "4:17")
         #expect(ReadingWindow.durationString(wordCount: 10, wordsPerSecond: 0) == "0 sec")
     }
+
+    @Test func pauseCuesMarkTheNextWord() {
+        let tokens = ScriptParser.parse("one [pause] two three")
+        #expect(ReadingWindow.pauseCueWordIndices(tokens) == [1])
+        let polite = ScriptParser.parse("one [smile] two")
+        #expect(ReadingWindow.pauseCueWordIndices(polite).isEmpty)
+        let trailing = ScriptParser.parse("one two [pause]")
+        #expect(ReadingWindow.pauseCueWordIndices(trailing).isEmpty)
+    }
+
+    @Test func pauseCueRecognition() {
+        #expect(ReadingWindow.isPauseCue("[pause]") == true)
+        #expect(ReadingWindow.isPauseCue("[wait for laughter]") == true)
+        #expect(ReadingWindow.isPauseCue("[hold]") == true)
+        #expect(ReadingWindow.isPauseCue("[smile]") == false)
+    }
 }
