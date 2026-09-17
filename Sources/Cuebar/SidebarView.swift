@@ -227,6 +227,6 @@ struct SearchField: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(CuePalette.card, in: RoundedRectangle(cornerRadius: 10))
+        .glassSurface(in: RoundedRectangle(cornerRadius: 10))
     }
 }

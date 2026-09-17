@@ -100,12 +100,23 @@ struct HoldBoostButton: View {
     @State private var holding = false
 
     var body: some View {
-        Text("\(settings.settings.clampedCatchUpBoost, specifier: "%.1f")×")
-            .font(.callout.monospacedDigit().weight(holding ? .bold : .regular))
-            .foregroundStyle(holding ? CuePalette.onHighlight : CuePalette.muted)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(holding ? CuePalette.peach : CuePalette.card, in: Capsule())
+        Group {
+            if holding {
+                Text("\(settings.settings.clampedCatchUpBoost, specifier: "%.1f")×")
+                    .font(.callout.monospacedDigit().weight(.bold))
+                    .foregroundStyle(CuePalette.onHighlight)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(CuePalette.peach, in: Capsule())
+            } else {
+                Text("\(settings.settings.clampedCatchUpBoost, specifier: "%.1f")×")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(CuePalette.muted)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .glassSurface(in: Capsule(), interactive: true)
+            }
+        }
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in press() }
@@ -146,6 +157,7 @@ struct SkipButton: View {
             .frame(width: 52, height: 52)
         }
         .buttonStyle(.plain)
+        .glassSurface(in: Circle(), interactive: true)
     }
 }
 

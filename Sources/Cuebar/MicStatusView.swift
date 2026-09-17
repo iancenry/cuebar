@@ -22,7 +22,7 @@ struct MicStatus: View {
         .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(CuePalette.card, in: Capsule())
+        .glassSurface(in: Capsule())
         .help(help)
     }
 

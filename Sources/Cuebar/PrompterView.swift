@@ -58,9 +58,8 @@ struct PrompterBody: View {
                         ScrollView {
                             Group {
                                 if tokens.isEmpty {
-                                    ContentUnavailableView("No script", systemImage: "text.alignleft",
-                                        description: Text("Pick a script on the left to start prompting."))
-                                        .padding(.top, 80)
+                                    ContentUnavailableView("Nothing to prompt", systemImage: "text.alignleft",
+                                        description: Text("Write a script in Edit mode or pick one on the left."))
                                 } else {
                                     TokenPageView(engine: engine, tokens: tokens, page: visiblePage,
                                                   pageSize: pageSize, settings: settings.settings)
@@ -76,7 +75,10 @@ struct PrompterBody: View {
                             .frame(minHeight: geo.size.height, alignment: .center)
                         }
                     }
-                    if settings.settings.showCenterLine {
+                    // The guide line marks where the current word tracks —
+                    // meaningless over an empty document, where it just
+                    // cut straight through the empty-state card.
+                    if settings.settings.showCenterLine, !tokens.isEmpty {
                         Rectangle()
                             .fill(CuePalette.peach.opacity(0.25))
                             .frame(height: 1)
@@ -129,7 +131,7 @@ struct PrompterBody: View {
                     }
                 }
                 .padding()
-                .background(CuePalette.card)
+                .glassSurface(in: RoundedRectangle(cornerRadius: CuePalette.cardRadius))
             }
             }
         .background(surface)
@@ -241,7 +243,7 @@ struct PageControls: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
-        .background(CuePalette.card, in: Capsule())
+        .glassSurface(in: Capsule())
         .padding(.vertical, 6)
     }
 }
