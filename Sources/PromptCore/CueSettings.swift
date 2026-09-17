@@ -131,7 +131,7 @@ public struct CueSettings: Codable, Equatable, Sendable {
     public var lineSpacing: Double = 0.5
     public var paragraphSpacing: Double = 0.5
     public var letterSpacing: Double = 0
-    public var readingWidth: Double? = nil
+    public var readingWidth: Double? = 650
     public var textAlignment: TextAlignment = .leading
     public var smoothScroll: Bool = true
     public var scrollSpeed: Double = 1.0 // multiplier on smooth-scroll animation

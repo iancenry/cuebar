@@ -20,6 +20,10 @@ struct CuebarApp: App {
             ContentView(engine: engine, scripts: scripts, settings: settings,
                         draftBody: $draftBody, tokens: $tokens, overlay: overlay, voice: voice)
                 .frame(minWidth: 1080, minHeight: 660)
+                // Camera-facing dark prompter: the palette is tuned for
+                // dark surfaces, so the app never follows Light Mode
+                // (where paper-white inks wash out on white chrome).
+                .preferredColorScheme(.dark)
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -46,6 +50,7 @@ struct CuebarApp: App {
         Settings {
             SettingsView(settings: settings)
                 .frame(width: 680, height: 700)
+                .preferredColorScheme(.dark)
         }
     }
 

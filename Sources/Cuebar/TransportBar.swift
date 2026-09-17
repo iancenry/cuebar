@@ -84,6 +84,9 @@ struct TransportBar: View {
             }
             .padding(.horizontal)
             .padding(.vertical, 10)
+            .background(alignment: .top) {
+                Divider().opacity(0.35)
+            }
         }
     }
 }
