@@ -75,10 +75,11 @@ struct PrompterBody: View {
                             .frame(minHeight: geo.size.height, alignment: .center)
                         }
                     }
-                    // The guide line marks where the current word tracks —
-                    // meaningless over an empty document, where it just
-                    // cut straight through the empty-state card.
-                    if settings.settings.showCenterLine, !tokens.isEmpty {
+                    // The guide line marks where the current word tracks
+                    // (scroll anchors words to the vertical center). It's
+                    // meaningless while browsing with Follow off, and
+                    // over an empty document.
+                    if settings.settings.showCenterLine, follow, !tokens.isEmpty {
                         Rectangle()
                             .fill(CuePalette.peach.opacity(0.25))
                             .frame(height: 1)
@@ -100,6 +101,23 @@ struct PrompterBody: View {
                 }
                 .onChange(of: engine.currentWordIndex) { _, new in
                     guard follow, let idx = new else { return }
+                    DispatchQueue.main.async {
+                        if settings.settings.smoothScroll {
+                            withAnimation(.easeOut(duration: settings.settings.scrollAnimationDuration)) {
+                                proxy.scrollTo("w-\(idx)", anchor: .center)
+                            }
+                        } else {
+                            proxy.scrollTo("w-\(idx)", anchor: .center)
+                        }
+                    }
+                }
+                .onChange(of: follow) { _, new in
+                    // Re-engaging Follow snaps the current word onto the
+                    // guide line immediately — otherwise it waited for the
+                    // next word change before scrolling at all.
+                    guard new else { return }
+                    page = enginePage
+                    guard let idx = engine.currentWordIndex else { return }
                     DispatchQueue.main.async {
                         if settings.settings.smoothScroll {
                             withAnimation(.easeOut(duration: settings.settings.scrollAnimationDuration)) {
@@ -135,11 +153,6 @@ struct PrompterBody: View {
             }
             }
         .background(surface)
-        .onChange(of: follow) { _, new in
-            // Single place where follow re-engages the tracker position,
-            // shared by every Follow toggle in every window.
-            if new { page = enginePage }
-        }
 #if os(macOS)
         .onAppear { installWheelMonitor() }
         .onDisappear { removeWheelMonitor() }
