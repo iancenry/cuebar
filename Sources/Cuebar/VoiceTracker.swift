@@ -27,9 +27,14 @@ final class VoiceTracker {
     private(set) var isSpeaking = false
     private(set) var lastTranscript = ""
     private(set) var driverName = ""
-    /// Wall-clock time of the last successful speech match. Smart mode
-    /// uses this to detect silence and fall back to WPM auto-scroll.
-    private(set) var lastVoiceMatchDate: Date?
+    /// True once the VAD has detected speech since the last play start.
+    /// Voice-activated guidance falls back to WPM scrolling until the
+    /// first detected speech, so a silent mic can never freeze Play.
+    private(set) var speechSeenSincePlay = false
+    /// Number of transcript updates received since the driver started.
+    /// Zero in the mic pill's tooltip means recognition isn't delivering,
+    /// regardless of what the level meter says.
+    private(set) var transcriptCount = 0
     /// Recent input levels (~6 s at the 8 Hz ticker) for the waveform.
     /// Appends flat zeros when idle so the wave settles instead of freezing.
     private(set) var levelHistory: [Double] = Array(repeating: 0, count: 48)
@@ -88,7 +93,8 @@ final class VoiceTracker {
         driverName = ""
         audioLevel = 0
         isSpeaking = false
-        lastVoiceMatchDate = nil
+        speechSeenSincePlay = false
+        transcriptCount = 0
         if state == .listening || state == .requesting {
             state = .stopped
         }
@@ -100,7 +106,13 @@ final class VoiceTracker {
         driver?.resetTranscript()
     }
 
-    /// Called from the 8 Hz app ticker: refresh the published VAD state.
+    /// Called when playback restarts: speech detection starts fresh so
+    /// voice-activated guidance re-arms its WPM fallback.
+    func resetSpeechSeen() {
+        speechSeenSincePlay = false
+    }
+
+    /// Called from the app ticker (~8 Hz): refresh the published VAD state.
     func pollVoice() {
         guard state == .listening, let driver else {
             audioLevel = 0
@@ -111,10 +123,14 @@ final class VoiceTracker {
         driver.poll()
         audioLevel = driver.audioLevel
         isSpeaking = driver.isSpeaking
+        if isSpeaking { speechSeenSincePlay = true }
         pushLevel(audioLevel)
     }
 
     private func pushLevel(_ level: Double) {
+        // Once the wave has fully settled to silence, appending more
+        // zeros is pure re-render churn — stop until real audio returns.
+        if level == 0, levelHistory.allSatisfy({ $0 == 0 }) { return }
         levelHistory.append(level)
         if levelHistory.count > 48 {
             levelHistory.removeFirst(levelHistory.count - 48)
@@ -144,12 +160,17 @@ extension VoiceTracker: TranscriptionEvents {
     func transcript(_ text: String) {
         guard state == .listening else { return }
         lastTranscript = text
+        transcriptCount += 1
         guard let engine, !text.isEmpty else { return }
-        if let end = SpeechMatcher.matchEnd(transcript: text,
+        // Match only the tail. Drivers accumulate the whole session's
+        // text and re-fire on every partial result — rescanning the full
+        // transcript each time is O(session²) for nothing, since the
+        // reading position only ever moves forward.
+        let tail = SpeechMatcher.transcriptTail(text, maxWords: 20)
+        if let end = SpeechMatcher.matchEnd(transcript: tail,
                                             words: engine.words,
                                             fromWordIndex: engine.currentWordIndex ?? 0) {
             engine.confirmReadThroughWord(end)
-            lastVoiceMatchDate = Date()
         }
     }
 

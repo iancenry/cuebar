@@ -74,6 +74,30 @@ public struct CueSettings: Codable, Equatable, Sendable {
     public enum HighlightStyle: String, Codable, Sendable, CaseIterable {
         case pill, underline, bold
     }
+    public enum SmartPauseMode: String, Codable, Sendable, CaseIterable {
+        case off, conservative, normal, aggressive
+
+        /// Seconds of sustained silence before the prompter auto-pauses.
+        /// At ~8 Hz polling, each tick is 125 ms.
+        public var silenceThreshold: Double {
+            switch self {
+            case .off: return .infinity
+            case .conservative: return 4.0
+            case .normal: return 2.5
+            case .aggressive: return 1.5
+            }
+        }
+
+        /// Seconds of sustained speech before the prompter auto-resumes.
+        public var resumeThreshold: Double {
+            switch self {
+            case .off: return 0
+            case .conservative: return 1.0
+            case .normal: return 1.5
+            case .aggressive: return 2.5
+            }
+        }
+    }
 
     public var guidance: GuidanceMode = .classic
     public var speechLanguage: String = "en-US"
@@ -119,6 +143,8 @@ public struct CueSettings: Codable, Equatable, Sendable {
     public var catchUpBoost: Double = 1.6
     /// Auto-pause when the highlight reaches a [pause]/[wait]/[hold] cue.
     public var pauseOnPauseCues: Bool = false
+    /// Detect sustained speech silence and auto-pause; resume when speech returns.
+    public var smartPause: SmartPauseMode = .off
     /// Scroll wheel releases Follow instead of fighting auto-scroll.
     public var releaseFollowOnScroll: Bool = true
     public var highlightCurrent: Bool = true
@@ -158,7 +184,7 @@ public struct CueSettings: Codable, Equatable, Sendable {
         case readingWidth, textAlignment, smoothScroll, highlightCurrent, highlightStyle
         case showCues, hidePunctuation, showProgress, showCenterLine
         case paragraphSpacing, scrollSpeed, wordsPerMinute, popOutOnPlay
-        case naturalPacing, catchUpBoost, pauseOnPauseCues, releaseFollowOnScroll
+        case naturalPacing, catchUpBoost, pauseOnPauseCues, smartPause, releaseFollowOnScroll
         case legacyAutoNextPage = "autoNextPage"
     }
 
@@ -208,6 +234,7 @@ public struct CueSettings: Codable, Equatable, Sendable {
         naturalPacing = decode(.naturalPacing, default: defaults.naturalPacing)
         catchUpBoost = decode(.catchUpBoost, default: defaults.catchUpBoost)
         pauseOnPauseCues = decode(.pauseOnPauseCues, default: defaults.pauseOnPauseCues)
+        smartPause = decode(.smartPause, default: defaults.smartPause)
         releaseFollowOnScroll = decode(.releaseFollowOnScroll, default: defaults.releaseFollowOnScroll)
         readingWidth = decode(.readingWidth, default: defaults.readingWidth)
         textAlignment = decode(.textAlignment, default: defaults.textAlignment)
@@ -258,6 +285,7 @@ public struct CueSettings: Codable, Equatable, Sendable {
         try c.encode(naturalPacing, forKey: .naturalPacing)
         try c.encode(catchUpBoost, forKey: .catchUpBoost)
         try c.encode(pauseOnPauseCues, forKey: .pauseOnPauseCues)
+        try c.encode(smartPause, forKey: .smartPause)
         try c.encode(releaseFollowOnScroll, forKey: .releaseFollowOnScroll)
         try c.encode(readingWidth, forKey: .readingWidth)
         try c.encode(textAlignment, forKey: .textAlignment)
@@ -275,9 +303,10 @@ public struct CueSettings: Codable, Equatable, Sendable {
 @Observable
 public final class SettingsStore {
     public var settings: CueSettings {
-        didSet { save() }
+        didSet { scheduleSave() }
     }
     private let defaultsKey = "Cuebar.settings.v5"
+    private var saveTask: Task<Void, Never>?
 
     public init() {
         if let data = UserDefaults.standard.data(forKey: defaultsKey),
@@ -294,7 +323,21 @@ public final class SettingsStore {
 
     public func reset() { settings = CueSettings() }
 
+    /// Coalesced persistence. Sliders write settings at drag rate (60+
+    /// mutations a second); encoding the whole struct and hitting
+    /// UserDefaults for each one is pure churn, so writes collapse into
+    /// the latest state a beat after the last change.
+    private func scheduleSave() {
+        saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            self?.save()
+        }
+    }
+
     private func save() {
+        saveTask = nil
         try? UserDefaults.standard.set(JSONEncoder().encode(settings), forKey: defaultsKey)
     }
 }

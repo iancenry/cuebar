@@ -48,6 +48,15 @@ struct TopBar: View {
                     }
                 }
                 Divider()
+                Picker("Follow mode", selection: $settings.settings.guidance) {
+                    Text("Traditional").tag(CueSettings.GuidanceMode.classic)
+                    Text("Smart (word tracking)").tag(CueSettings.GuidanceMode.wordTracking)
+                    Text("Voice (speak/pause)").tag(CueSettings.GuidanceMode.voiceActivated)
+                    Text("Auto (WPM)").tag(CueSettings.GuidanceMode.auto)
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+                Divider()
                 Button("Settings…") { openSettings() }
             } label: {
                 Image(systemName: "gearshape")
@@ -55,8 +64,8 @@ struct TopBar: View {
                     .foregroundStyle(CuePalette.muted)
             }
             .menuStyle(.borderlessButton)
-            .help("Display and settings")
-            .accessibilityLabel("Display and settings")
+            .help("Display, follow mode and settings")
+            .accessibilityLabel("Display, follow mode and settings")
             .fixedSize()
         }
         .padding(.horizontal)

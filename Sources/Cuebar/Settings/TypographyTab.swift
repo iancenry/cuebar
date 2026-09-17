@@ -24,6 +24,7 @@ struct TypographyTab: View {
                          ? "Using bundled OpenDyslexic (SIL-OFL)."
                          : "OpenDyslexic not loaded — using rounded fallback.")
                         .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 #endif
                 Picker("Size", selection: $settings.settings.textSize) {
@@ -58,6 +59,7 @@ struct TypographyTab: View {
                 .pickerStyle(.segmented)
                 Text("The notch island always stays black to melt into the menu bar.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Section("Spacing") {
                 VStack(alignment: .leading, spacing: 4) {
@@ -74,6 +76,7 @@ struct TypographyTab: View {
                 }
                 Text("Paragraph gap applies between blank-line separated blocks.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Letter spacing \(settings.settings.letterSpacing, specifier: "%.1f")").font(.callout)
                     Slider(value: $settings.settings.letterSpacing, in: 0...1.5, step: 0.1) {

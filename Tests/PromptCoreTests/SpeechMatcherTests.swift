@@ -39,6 +39,27 @@ import PromptCore
         #expect(SpeechMatcher.matchEnd(transcript: "hello world", words: [], fromWordIndex: 0, tolerant: false) == nil)
     }
 
+    // MARK: - Transcript tail (bounded matching input)
+
+    @Test func tailKeepsShortTranscriptWhole() {
+        #expect(SpeechMatcher.transcriptTail("thank you", maxWords: 20) == "thank you")
+        #expect(SpeechMatcher.transcriptTail("", maxWords: 20) == "")
+    }
+
+    @Test func tailTrimsToLastWords() {
+        let long = (1...50).map { "w\($0)" }.joined(separator: " ")
+        #expect(SpeechMatcher.transcriptTail(long, maxWords: 20) == (31...50).map { "w\($0)" }.joined(separator: " "))
+    }
+
+    @Test func tailMatchesAfterTrim() {
+        // The tail of an accumulated session transcript still matches
+        // recent speech — this is exactly how VoiceTracker feeds the
+        // matcher, and rescanning the full text is O(session²).
+        let session = "good morning and thank you"
+        #expect(SpeechMatcher.matchEnd(transcript: SpeechMatcher.transcriptTail(session, maxWords: 2),
+                                       words: words, fromWordIndex: 3, tolerant: true) == 5)
+    }
+
     @Test @MainActor func engineConfirmsThroughWord() {
         let e = PromptEngine()
         e.loadScript("Good morning and thank you")

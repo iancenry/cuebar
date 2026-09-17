@@ -41,6 +41,7 @@ public final class ScriptStore {
 
     private let fileURL: URL?
     private let categoriesURL: URL?
+    private var saveTask: Task<Void, Never>?
 
     /// Starter categories shown in the sidebar box.
     public static let defaultCategories = ["Presentations", "Interviews", "Personal"]
@@ -147,9 +148,24 @@ public final class ScriptStore {
         }
     }
 
+    /// Coalesced persistence: the title field commits on every keystroke
+    /// and bodies can be large, so full-file JSON writes collapse to the
+    /// latest state shortly after the last change (EditView already
+    /// debounces its own commits; this catches the rest).
     private func save() {
+        saveTask?.cancel()
+        let snapshot = scripts
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            self?.flushSave(snapshot)
+        }
+    }
+
+    private func flushSave(_ snapshot: [ScriptDocument]) {
+        saveTask = nil
         guard let url = fileURL else { return }
-        try? JSONEncoder().encode(scripts).write(to: url, options: .atomic)
+        try? JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
     }
 
     private func loadCategories() {

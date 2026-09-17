@@ -117,9 +117,28 @@ final class OverlayController {
         Binding(get: { self.overlayFollow }, set: { self.overlayFollow = $0 })
     }
 
+    /// A settings value changed while the panel is open. Always refresh
+    /// the remembered snapshot (hide() persists it, so it must never go
+    /// stale), but only touch the window when a window-relevant field
+    /// moved — a WPM stepper click used to resize and re-level the panel.
+    func settingsDidChange(_ latest: CueSettings) {
+        guard isShowing else { return }
+        let chromeChanged =
+            snapshot.overlayMode != latest.overlayMode
+            || snapshot.overlayWidth != latest.overlayWidth
+            || snapshot.overlayHeight != latest.overlayHeight
+            || snapshot.transparencyEnabled != latest.transparencyEnabled
+            || snapshot.transparencyAmount != latest.transparencyAmount
+            || snapshot.hideFromShare != latest.hideFromShare
+            || snapshot.alwaysOnTop != latest.alwaysOnTop
+            || snapshot.displayTarget != latest.displayTarget
+            || snapshot.fixedDisplayIndex != latest.fixedDisplayIndex
+        snapshot = latest
+        if chromeChanged { applyChrome() }
+    }
+
     /// Live-apply chrome (transparency, sharing, size) to the open
-    /// panel without rebuilding it. Sliders in Settings now work
-    /// while the overlay is on screen.
+    /// panel without rebuilding it.
     func applyChrome() {
         guard let panel, let store, isShowing else { return }
         snapshot = store.settings

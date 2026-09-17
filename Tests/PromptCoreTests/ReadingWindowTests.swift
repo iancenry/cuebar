@@ -78,4 +78,42 @@ import PromptCore
         #expect(ReadingWindow.isPauseCue("[hold]") == true)
         #expect(ReadingWindow.isPauseCue("[smile]") == false)
     }
+
+    // MARK: - pageParagraphRows (single-pass render grouping)
+
+    @Test func pageRowsSplitOnParagraphs() {
+        let tokens = ScriptParser.parse("one two\n\nthree four")
+        let rows = ReadingWindow.pageParagraphRows(tokens, page: 0, pageSize: 4, showCues: true)
+        #expect(rows.count == 2)
+        #expect(rows[0].map(\.token) == [.word("one"), .word("two")])
+        #expect(rows[1].map(\.wordIndex) == [2, 3])
+    }
+
+    @Test func pageRowsSkipOtherPages() {
+        let tokens = ScriptParser.parse("one two three four")
+        let rows = ReadingWindow.pageParagraphRows(tokens, page: 1, pageSize: 2, showCues: true)
+        #expect(rows.count == 1)
+        #expect(rows[0].map(\.wordIndex) == [2, 3])
+    }
+
+    @Test func pageRowsHideCuesWhenAsked() {
+        let tokens = ScriptParser.parse("one [smile] two")
+        let shown = ReadingWindow.pageParagraphRows(tokens, page: 0, pageSize: 2, showCues: true)
+        #expect(shown[0].count == 3)
+        let hidden = ReadingWindow.pageParagraphRows(tokens, page: 0, pageSize: 2, showCues: false)
+        #expect(hidden[0].map(\.token) == [.word("one"), .word("two")])
+    }
+
+    @Test func pageRowsGlobalWordIndices() {
+        // Word indexes keep counting across pages: page 2 starts at 4.
+        let tokens = ScriptParser.parse("a b c d e f")
+        let rows = ReadingWindow.pageParagraphRows(tokens, page: 1, pageSize: 4, showCues: true)
+        #expect(rows[0].map(\.wordIndex) == [4, 5])
+    }
+
+    @Test func emptyPageStillRendersOneGroup() {
+        let rows = ReadingWindow.pageParagraphRows([], page: 0, pageSize: 300, showCues: true)
+        #expect(rows.count == 1)
+        #expect(rows[0].isEmpty)
+    }
 }

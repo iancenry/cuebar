@@ -16,25 +16,44 @@ struct PlaybackDriver: View {
     var pick: (UUID) -> Void
     @State private var lastTick: Date?
     @State private var voiceTask: Task<Void, Never>?
-
-    /// Smart mode: voice matching drives while speaking; WPM auto-scroll
-    /// kicks in after this many seconds of silence.
-    private static let smartSilenceTimeout: TimeInterval = 2.0
+    @State private var ticker: Task<Void, Never>?
+    /// Voice polling cadence: the VAD and level history were designed
+    /// around ~8 Hz, and polling at the 60 Hz ticker rate republished
+    /// mic state (and re-rendered every observer) 60× a second.
+    @State private var voicePollAccumulator: Double = 0
+    private static let voicePollInterval: Double = 0.125
+    /// Smart pause: accumulators and state for speech-silence detection.
+    @State private var smartPauseSilenceAccumulator: Double = 0
+    @State private var smartPauseSpeechAccumulator: Double = 0
+    /// True when smart pause auto-paused playback; we only auto-resume
+    /// if we were the ones who paused.
+    @State private var smartPauseDidAutoPause: Bool = false
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
-            .onReceive(Timer.publish(every: 1.0 / 60, on: .main, in: .common).autoconnect()) { date in
-                tick(date)
-            }
             .onAppear {
                 engine.naturalPacing = settings.settings.naturalPacing
+                syncTicker()
+            }
+            .onDisappear {
+                ticker?.cancel()
+                ticker = nil
             }
             .onChange(of: settings.settings.naturalPacing) { _, pacing in
                 engine.naturalPacing = pacing
             }
             .onChange(of: engine.isPlaying) { _, playing in
-                if playing { mode = .perform }
+                if playing {
+                    mode = .perform
+                    voice.resetSpeechSeen()
+                }
+                // Reset smart pause state when playback starts/stops.
+                if playing {
+                    smartPauseSilenceAccumulator = 0
+                    smartPauseSpeechAccumulator = 0
+                    smartPauseDidAutoPause = false
+                }
                 // Pop out by default: pressing Play presents the overlay,
                 // so there's nothing to go looking for.
                 if playing, !overlay.isShowing, settings.settings.popOutOnPlay {
@@ -42,6 +61,10 @@ struct PlaybackDriver: View {
                                  tokens: tokens, voice: voice)
                 }
                 syncVoice()
+                syncTicker()
+            }
+            .onChange(of: voice.state) { _, _ in
+                syncTicker()
             }
             .onChange(of: settings.settings.wordsPerMinute) { _, wpm in
                 // Settings is the persisted source of truth; the engine is
@@ -67,6 +90,7 @@ struct PlaybackDriver: View {
             }
             .onChange(of: settings.settings.guidance) { _, _ in
                 syncVoice()
+                syncTicker()
             }
             .onChange(of: settings.settings.speechLanguage) { _, language in
                 voice.language = language
@@ -79,53 +103,110 @@ struct PlaybackDriver: View {
             }
     }
 
-    private func tick(_ date: Date) {
-        let delta: Double = lastTick.map { date.timeIntervalSince($0) } ?? 1.0 / 60
-        lastTick = date
-        voice.pollVoice()
+    /// The ticker only earns its CPU while something can actually change:
+    /// playing, a live mic (level meter + VAD), or a smart pause waiting
+    /// for speech to auto-resume. Idle time now costs zero timers instead
+    /// of 60 wakeups a second.
+    ///
+    /// The loop is a MainActor task, not a run-loop Timer: every tick runs
+    /// *inside* a real task on the main executor, so no `MainActor
+    /// .assumeIsolated` is needed — that call crashes in the Swift 6.2
+    /// runtime when the runloop fires a Timer outside any task context.
+    private func syncTicker() {
+        let active = engine.isPlaying || voice.state == .listening || smartPauseDidAutoPause
+        if active {
+            if ticker == nil {
+                lastTick = nil
+                voicePollAccumulator = 0
+                ticker = Task { [self] in
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .milliseconds(16))
+                        if Task.isCancelled { break }
+                        tick()
+                    }
+                }
+            }
+        } else {
+            ticker?.cancel()
+            ticker = nil
+            lastTick = nil
+            voicePollAccumulator = 0
+        }
+    }
+
+    private func tick() {
+        let now = Date()
+        let delta: Double = lastTick.map { now.timeIntervalSince($0) } ?? 1.0 / 60
+        lastTick = now
+        voicePollAccumulator += delta
+        if voicePollAccumulator >= Self.voicePollInterval {
+            voicePollAccumulator = 0
+            voice.pollVoice()
+        }
         let guidance = settings.settings.guidance
-        let denied = voice.state == .denied
         let speaking = voice.isSpeaking
+
+        // Smart pause: accumulate silence/speech and auto-pause/resume.
+        // Armed only once the mic has actually heard speech — otherwise a
+        // silent mic reads as "eternal silence" and instantly auto-pauses.
+        if guidance.usesVoice, settings.settings.smartPause != .off, engine.isPlaying,
+           voice.speechSeenSincePlay {
+            tickSmartPause(speaking: speaking, delta: delta)
+        }
 
         switch guidance {
         case .classic, .auto:
             engine.tick(delta)
 
         case .voiceActivated:
-            if speaking { engine.tick(delta) }
-
-        case .wordTracking:
-            // Smart mode: voice matching drives (via VoiceTracker.transcript),
-            // but WPM auto-scroll kicks in after silence. The mic-denied
-            // fallback always uses WPM so the script still advances.
-            if denied {
-                engine.tick(delta)
-            } else if speaking || !voiceSilentTooLong {
-                // Voice is active or silence is within the grace window:
-                // let the voice matcher drive (it calls confirmRead).
-                // If the matcher hasn't fired yet (speech just started),
-                // we still tick WPM so the highlight doesn't stall waiting
-                // for the first transcript.
-                if !speaking {
-                    // Grace period: voice just stopped, matcher might still
-                    // have a final match incoming. Don't tick — let the
-                    // voice match land first.
-                } else {
-                    // While speaking, WPM also ticks as a gentle backup so
-                    // the highlight doesn't freeze if the matcher is slow.
-                    engine.tick(delta)
-                }
-            } else {
-                // Silent too long: WPM fallback keeps the script moving.
+            // Speak-to-scroll — but until the mic has picked up its first
+            // speech this session, keep ticking so Play is never a no-op
+            // (a silent or wrong-input mic used to freeze the prompter).
+            if speaking || !voice.speechSeenSincePlay {
                 engine.tick(delta)
             }
+
+        case .wordTracking:
+            // Always tick WPM — voice matches layer on top via
+            // confirmReadThroughWord. This keeps the script moving
+            // even when the matcher hasn't fired yet.
+            engine.tick(delta)
         }
     }
 
-    /// True when the last voice match was recent (within the grace window).
-    private var voiceSilentTooLong: Bool {
-        guard let last = voice.lastVoiceMatchDate else { return true }
-        return Date().timeIntervalSince(last) > Self.smartSilenceTimeout
+    // MARK: - Smart Pause
+
+    /// Accumulate silence/speech duration. Auto-pause when silence exceeds
+    /// threshold; auto-resume when speech exceeds resume threshold.
+    private func tickSmartPause(speaking: Bool, delta: Double) {
+        let mode = settings.settings.smartPause
+        if speaking {
+            smartPauseSilenceAccumulator = 0
+            smartPauseSpeechAccumulator += delta
+            // Auto-resume: sustained speech after an auto-pause.
+            if smartPauseDidAutoPause,
+               smartPauseSpeechAccumulator >= mode.resumeThreshold {
+                engine.play()
+                smartPauseDidAutoPause = false
+                smartPauseSpeechAccumulator = 0
+                syncTicker()
+                syncVoice()
+            }
+        } else {
+            smartPauseSpeechAccumulator = 0
+            smartPauseSilenceAccumulator += delta
+            // Auto-pause: sustained silence.
+            if !smartPauseDidAutoPause,
+               smartPauseSilenceAccumulator >= mode.silenceThreshold {
+                engine.pause()
+                smartPauseDidAutoPause = true
+                smartPauseSilenceAccumulator = 0
+                // Keep the ticker + mic alive: the auto-resume path needs
+                // them to hear speech again while playback is stopped.
+                syncTicker()
+                syncVoice()
+            }
+        }
     }
 
     private func advance(_ progress: Double) {
@@ -170,7 +251,10 @@ struct PlaybackDriver: View {
     private func syncVoice() {
         voiceTask?.cancel()
         voiceTask = nil
-        if engine.isPlaying, voiceMode {
+        // Keep the mic alive through a smart auto-pause — killing it here
+        // would make auto-resume physically impossible (silence can't
+        // un-pause anything if nobody is listening).
+        if (engine.isPlaying || smartPauseDidAutoPause), voiceMode {
             voice.language = settings.settings.speechLanguage
             voiceTask = Task {
                 await voice.start(engine: engine,

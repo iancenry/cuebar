@@ -26,9 +26,11 @@ struct ReadingTab: View {
                 }
                 Text("Coarse keys ⌘↑/↓ move ±10 WPM; hold ⇧ for ±1 WPM fine steps.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Toggle("Natural pacing", isOn: $settings.settings.naturalPacing)
                 Text("Long words linger, commas breathe, sentence ends land. Off scrolls at a steady mechanical rate.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Catch-up boost \(settings.settings.catchUpBoost, specifier: "%.1f")×").font(.callout)
                     Slider(value: $settings.settings.catchUpBoost, in: 1.2...2.5, step: 0.1) {
@@ -37,6 +39,7 @@ struct ReadingTab: View {
                 }
                 Text("Hold → or hold the × button in the transport bar to briefly run this much faster, then ease back.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Scroll speed \(settings.settings.scrollSpeed, specifier: "%.2f")×").font(.callout)
                     Slider(value: $settings.settings.scrollSpeed, in: 0.25...2.0, step: 0.05) {
@@ -45,6 +48,7 @@ struct ReadingTab: View {
                 }
                 Text("Words per minute drives the teleprompter; scroll speed controls how fast smooth scrolling glides to the current word.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Picker("Scrolling", selection: $settings.settings.smoothScroll) {
                 Text("Smooth").tag(true)
@@ -55,6 +59,7 @@ struct ReadingTab: View {
                   ? "Glide to the current word at the scroll speed above."
                   : "Jump to the current word instantly.")
                 .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Section("Current word") {
                 Toggle("Highlight", isOn: $settings.settings.highlightCurrent)
                 Picker("Style", selection: $settings.settings.highlightStyle) {
@@ -89,24 +94,38 @@ struct ReadingTab: View {
                 .pickerStyle(.segmented)
                 Text("[bracketed] directions render as badges and never count as words.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Toggle("Hide punctuation", isOn: $settings.settings.hidePunctuation)
             Text("Reading view drops punctuation; tracking is unaffected.")
                 .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Section("Pause") {
                 Toggle("Pause at [pause] cues", isOn: $settings.settings.pauseOnPauseCues)
                 Text("When the highlight reaches [pause], [wait], or [hold], ease to a stop.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Picker("Smart pause", selection: $settings.settings.smartPause) {
+                    ForEach(CueSettings.SmartPauseMode.allCases, id: \.self) { mode in
+                        Text(mode == .off ? "Off" : mode.rawValue.capitalized).tag(mode)
+                    }
+                }
+                Text("Auto-pause when you stop speaking; auto-resume when you start again. Works in Voice or Smart mode.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Toggle("Wheel releases Follow", isOn: $settings.settings.releaseFollowOnScroll)
                 Text("Nudging the scroll wheel lets you look around without auto-scroll fighting you. Playback continues; Resume follow jumps back.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text("Ways to pause: ⌥Space, the transport button, clicking a word to jump (keeps playing), silence in Voice-Activated mode, or deny-free fallback in Word Tracking.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Toggle("Show progress", isOn: $settings.settings.showProgress)
             Toggle("Center line", isOn: $settings.settings.showCenterLine)
             Text("A quiet eye-line across the middle that Follow tracks onto.")
                 .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Toggle("Elapsed time", isOn: $settings.settings.showElapsed)
             Toggle("Auto next script", isOn: $settings.settings.autoNextScript)
             Section("Reading window") {
@@ -120,6 +139,7 @@ struct ReadingTab: View {
                 }
                 Text("Bounds how many words render at once — the efficiency win for long scripts.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

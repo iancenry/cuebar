@@ -79,13 +79,11 @@ struct ContentView: View {
         }
         .onChange(of: settings.settings.hideFromShare) { _, hide in
             sharing.setHidden(hide)
-            // Re-sync overlay chrome: the guard restores captured
-            // originals, the overlay re-applies the current setting.
-            if overlay.isShowing { overlay.applyChrome() }
         }
         .onChange(of: settings.settings) { _, _ in
-            // Transparency, sharing, and size apply live to the open panel.
-            if overlay.isShowing { overlay.applyChrome() }
+            // Transparency, sharing, and size apply live to the open panel
+            // — but only when a window-relevant field actually changed.
+            if overlay.isShowing { overlay.settingsDidChange(settings.settings) }
         }
     }
 

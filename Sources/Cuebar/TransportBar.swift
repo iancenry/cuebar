@@ -127,7 +127,8 @@ struct HoldBoostButton: View {
     }
 }
 
-struct SkipButton: View {    let icon: String
+struct SkipButton: View {
+    let icon: String
     let caption: String
     var action: () -> Void
 

@@ -62,9 +62,11 @@ struct MicStatus: View {
             return message
         default:
             let engine = voice.driverName.isEmpty ? "—" : voice.driverName
-            var info = "Engine: \(engine). Speak and the meter should move."
-            if !voice.lastTranscript.isEmpty {
-                info += " Last heard: “\(voice.lastTranscript.suffix(80))”."
+            var info = "Engine: \(engine). The meter should move while you speak."
+            if voice.transcriptCount == 0 {
+                info += " No transcripts yet — recognition isn't delivering."
+            } else {
+                info += " Heard \(voice.transcriptCount) updates; last: “\(voice.lastTranscript.suffix(80))”."
             }
             return info
         }

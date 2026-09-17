@@ -58,8 +58,13 @@ public final class PromptEngine {
 
     public func loadScript(_ text: String, preservingPosition: Bool = false) {
         // Cues like [smile] are stage directions: never tracked as words.
-        words = ScriptParser.words(text)
-        paragraphStarts = Self.paragraphStartIndices(in: text, wordCount: words.count)
+        // One parse feeds both the word list and paragraph-open tracking.
+        let tokens = ScriptParser.parse(text)
+        words = tokens.compactMap {
+            if case .word(let w) = $0 { return w }
+            return nil
+        }
+        paragraphStarts = Self.paragraphStartIndices(in: tokens, wordCount: words.count)
         rebuildIndex()
         charRemainder = 0
         stopping = false
@@ -275,10 +280,9 @@ public final class PromptEngine {
     }
 
     /// Word indices that open a paragraph: the first word plus every word
-    /// following a blank line in the raw script text.
-    public nonisolated static func paragraphStartIndices(in text: String, wordCount: Int) -> Set<Int> {
+    /// following a blank line in the parsed token stream.
+    public nonisolated static func paragraphStartIndices(in tokens: [ScriptToken], wordCount: Int) -> Set<Int> {
         guard wordCount > 0 else { return [] }
-        let tokens = ScriptParser.parse(text)
         var starts: Set<Int> = [0]
         var wi = 0
         var afterBreak = false
@@ -295,5 +299,11 @@ public final class PromptEngine {
             }
         }
         return starts
+    }
+
+    /// String convenience: parses once, then delegates.
+    public nonisolated static func paragraphStartIndices(in text: String, wordCount: Int) -> Set<Int> {
+        guard wordCount > 0 else { return [] }
+        return paragraphStartIndices(in: ScriptParser.parse(text), wordCount: wordCount)
     }
 }

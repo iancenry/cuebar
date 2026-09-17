@@ -7,12 +7,16 @@ struct SettingsTab<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        ScrollView {
-            Form {
-                content()
+        GeometryReader { geo in
+            ScrollView(.vertical) {
+                Form {
+                    content()
+                }
+                .padding(.horizontal, 4)
+                .padding(.vertical, 8)
+                .frame(width: geo.size.width)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .scrollIndicators(.hidden)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

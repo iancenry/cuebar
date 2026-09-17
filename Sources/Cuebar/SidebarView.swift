@@ -35,8 +35,13 @@ struct SidebarView: View {
         return searched.filter { $0.category == filter }
     }
 
-    private func count(for category: String) -> Int {
-        scripts.scripts.filter { $0.category == category }.count
+    /// One pass over the scripts instead of a scan per category row.
+    private var countsByCategory: [String: Int] {
+        var counts: [String: Int] = [:]
+        for doc in scripts.scripts {
+            counts[doc.category, default: 0] += 1
+        }
+        return counts
     }
 
     private func icon(for category: String) -> String {
@@ -101,7 +106,7 @@ struct SidebarView: View {
                 }
                 ForEach(scripts.knownCategories, id: \.self) { name in
                     CategoryRow(icon: icon(for: name), name: name,
-                                count: count(for: name),
+                                count: countsByCategory[name] ?? 0,
                                 selected: filter == name) {
                         filter = (filter == name) ? nil : name
                     }

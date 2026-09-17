@@ -108,10 +108,12 @@ struct ReadingPreview: View {
                     Text("40%")
                         .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
                 }
-                Spacer()
+                Spacer(minLength: 0)
                 Text("\(Int(settings.wordsPerMinute.rounded())) wpm · \(settings.smoothScroll ? "Smooth" : "Stepped")")
                     .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                    .lineLimit(1)
             }
+            .fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Preview, \(Int(settings.wordsPerMinute.rounded())) words per minute")
         }

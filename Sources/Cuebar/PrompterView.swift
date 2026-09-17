@@ -227,83 +227,10 @@ struct PageControls: View {
     }
 }
 
-/// Maps the token stream to views for one page. Only `.word` tokens
-/// consume a tracking index; cues and paragraph breaks ride along for
-/// display (cues hide when cues are off — paging math always runs on
-/// the full stream).
-struct TokenViews: View {
-    @Bindable var engine: PromptEngine
-    let tokens: [ScriptToken]
-    let page: Int
-    let pageSize: Int
-    let settings: CueSettings
-
-    private var fontSize: Double { settings.textSize.points * settings.prompterScale }
-
-    struct Row {
-        let token: ScriptToken
-        let wordIndex: Int // -1 for cues and breaks
-        let page: Int
-    }
-
-    func rows() -> [Row] {
-        let pages = ReadingWindow.tokenPages(tokens, pageSize: pageSize)
-        var out: [Row] = []
-        out.reserveCapacity(tokens.count)
-        var wi = 0
-        for (i, t) in tokens.enumerated() {
-            if t.isWord {
-                out.append(Row(token: t, wordIndex: wi, page: pages[i]))
-                wi += 1
-            } else {
-                out.append(Row(token: t, wordIndex: -1, page: pages[i]))
-            }
-        }
-        return out.filter {
-            $0.page == page
-                && ($0.token.isParagraphBreak || settings.showCues || !$0.token.isCue)
-        }
-    }
-
-    /// Page rows split on paragraph breaks for VStack rendering.
-    func paragraphs() -> [[Row]] {
-        var groups: [[Row]] = [[]]
-        for row in rows() {
-            if row.token.isParagraphBreak {
-                groups.append([])
-            } else {
-                groups[groups.count - 1].append(row)
-            }
-        }
-        // A page boundary can strand a leading break; drop empty groups
-        // but keep at least one so empty pages still render.
-        let nonEmpty = groups.filter { !$0.isEmpty }
-        return nonEmpty.isEmpty ? [[]] : nonEmpty
-    }
-
-    var body: some View {
-        ForEach(Array(rows().enumerated()), id: \.offset) { _, row in
-            switch row.token {
-            case .word(let w):
-                WordPill(word: w,
-                         isPast: row.wordIndex < (engine.currentWordIndex ?? 0),
-                         isCurrent: row.wordIndex == (engine.currentWordIndex ?? -1),
-                         settings: settings,
-                         fontSize: fontSize)
-                    .id("w-\(row.wordIndex)")
-                    .onTapGesture { engine.jumpTo(wordIndex: row.wordIndex) }
-            case .cue(let c):
-                CueBadge(text: CueBadge.label(for: c), settings: settings, fontSize: fontSize)
-            case .paragraphBreak:
-                EmptyView()
-            }
-        }
-    }
-}
-
 /// Page renderer with real paragraph gaps. Each paragraph is its own
 /// FlowLayout; the VStack spacing is paragraphSpacing × fontSize so the
-/// Typography slider is immediately visible in the prompter.
+/// Typography slider is immediately visible in the prompter. Rows come
+/// from ReadingWindow.pageParagraphRows (one tested pass; cues filtered).
 struct TokenPageView: View {
     @Bindable var engine: PromptEngine
     let tokens: [ScriptToken]
@@ -314,13 +241,13 @@ struct TokenPageView: View {
     private var fontSize: Double { settings.textSize.points * settings.prompterScale }
 
     var body: some View {
-        let helper = TokenViews(engine: engine, tokens: tokens, page: page,
-                                pageSize: pageSize, settings: settings)
-        let paras = helper.paragraphs()
+        let groups = ReadingWindow.pageParagraphRows(tokens, page: page,
+                                                     pageSize: pageSize,
+                                                     showCues: settings.showCues)
         let current = engine.currentWordIndex ?? -1
         VStack(alignment: settings.textAlignment == .center ? .center : .leading,
                spacing: fontSize * settings.clampedParagraphSpacing) {
-            ForEach(Array(paras.enumerated()), id: \.offset) { _, para in
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, para in
                 FlowLayout(spacing: max(6, fontSize * 0.22),
                            lineSpacing: fontSize * settings.lineSpacing) {
                     ForEach(Array(para.enumerated()), id: \.offset) { _, row in

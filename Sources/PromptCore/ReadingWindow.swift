@@ -55,6 +55,47 @@ public enum ReadingWindow: Sendable {
         return pages
     }
 
+    // MARK: - Page rendering groups
+
+    /// One render row for a page: the token plus the tracking word index
+    /// (-1 for cues and paragraph breaks, which are never tracked).
+    public struct TokenRow: Equatable, Sendable {
+        public let token: ScriptToken
+        public let wordIndex: Int
+    }
+
+    /// Paragraph groups of rows for one page, in a single pass. Cues hide
+    /// when `showCues` is false; paragraph breaks always split groups so a
+    /// page renders real gaps. Replaces the old two-pass rows()/paragraphs()
+    /// pair, which materialized every token in the script and re-filtered
+    /// it twice on every render.
+    public static func pageParagraphRows(_ tokens: [ScriptToken],
+                                         page: Int,
+                                         pageSize: Int,
+                                         showCues: Bool) -> [[TokenRow]] {
+        let pages = tokenPages(tokens, pageSize: pageSize)
+        var groups: [[TokenRow]] = [[]]
+        var wordIndex = 0
+        for (i, t) in tokens.enumerated() {
+            guard pages[i] == page else {
+                if t.isWord { wordIndex += 1 }
+                continue
+            }
+            if t.isParagraphBreak {
+                groups.append([])
+            } else if t.isCue, !showCues {
+                continue
+            } else {
+                groups[groups.count - 1].append(TokenRow(token: t, wordIndex: t.isWord ? wordIndex : -1))
+            }
+            if t.isWord { wordIndex += 1 }
+        }
+        // A page boundary can strand a leading break; drop empty groups
+        // but keep at least one so empty pages still render.
+        let nonEmpty = groups.filter { !$0.isEmpty }
+        return nonEmpty.isEmpty ? [[]] : nonEmpty
+    }
+
     // MARK: - Overlay placement (plain numbers, no AppKit)
 
     public struct Rect: Equatable, Sendable {

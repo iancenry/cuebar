@@ -15,6 +15,7 @@ struct VoiceTab: View {
                 .pickerStyle(.segmented)
                 Text(guidanceBlurb)
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Picker("Speech language", selection: $settings.settings.speechLanguage) {
                 Text("English (US)").tag("en-US")
@@ -26,6 +27,7 @@ struct VoiceTab: View {
             }
             Text("System Default input. The first run asks for Microphone access (plus Speech Recognition on the legacy path); the live level meter then appears in the prompter header.")
                 .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Picker("Engine", selection: $settings.settings.transcriptionEngine) {
                 Text("Automatic").tag(CueSettings.TranscriptionEngine.automatic)
                 Text("On-device").tag(CueSettings.TranscriptionEngine.onDevice)
@@ -34,6 +36,7 @@ struct VoiceTab: View {
             .pickerStyle(.segmented)
             Text("Automatic uses the fully offline on-device model on macOS 26+, falling back to legacy recognition otherwise. Legacy may send audio to Apple.")
                 .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

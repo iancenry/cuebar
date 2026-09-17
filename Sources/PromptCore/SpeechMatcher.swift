@@ -43,6 +43,17 @@ public enum SpeechMatcher: Sendable {
             .filter { !$0.isEmpty }
     }
 
+    /// Last `maxWords` words of a transcript, space-joined. Callers pass
+    /// this to `matchEnd`: drivers hand over the full accumulated session
+    /// text on every partial result, but the reading position only moves
+    /// forward, so old words are dead weight (and would be rescanned every
+    /// time — O(session²) over a long take).
+    public static func transcriptTail(_ transcript: String, maxWords: Int) -> String {
+        let parts = transcript.split(separator: " ")
+        guard parts.count > maxWords else { return transcript }
+        return parts.suffix(maxWords).joined(separator: " ")
+    }
+
     // MARK: - Tolerant matching
 
     /// Common English filler words that speech recognition emits but

@@ -64,7 +64,56 @@ import PromptCore
         #expect(s.naturalPacing == true)
         #expect(s.catchUpBoost == 1.6)
         #expect(s.pauseOnPauseCues == false)
+        #expect(s.smartPause == .off)
         #expect(s.releaseFollowOnScroll == true)
+    }
+
+    // MARK: - Smart Pause thresholds
+
+    @Test func smartPauseOffNeverFires() {
+        let mode = CueSettings.SmartPauseMode.off
+        #expect(mode.silenceThreshold == .infinity)
+        #expect(mode.resumeThreshold == 0)
+    }
+
+    @Test func smartPauseConservativeThresholds() {
+        let mode = CueSettings.SmartPauseMode.conservative
+        #expect(mode.silenceThreshold == 4.0)
+        #expect(mode.resumeThreshold == 1.0)
+    }
+
+    @Test func smartPauseNormalThresholds() {
+        let mode = CueSettings.SmartPauseMode.normal
+        #expect(mode.silenceThreshold == 2.5)
+        #expect(mode.resumeThreshold == 1.5)
+    }
+
+    @Test func smartPauseAggressiveThresholds() {
+        let mode = CueSettings.SmartPauseMode.aggressive
+        #expect(mode.silenceThreshold == 1.5)
+        #expect(mode.resumeThreshold == 2.5)
+    }
+
+    @Test func smartPauseThresholdsMonotonic() {
+        // Conservative is slowest to pause, aggressive is fastest.
+        let off = CueSettings.SmartPauseMode.off
+        let cons = CueSettings.SmartPauseMode.conservative
+        let norm = CueSettings.SmartPauseMode.normal
+        let aggr = CueSettings.SmartPauseMode.aggressive
+        #expect(off.silenceThreshold > cons.silenceThreshold)
+        #expect(cons.silenceThreshold > norm.silenceThreshold)
+        #expect(norm.silenceThreshold > aggr.silenceThreshold)
+        // Resume: conservative resumes fastest, aggressive waits longest.
+        #expect(cons.resumeThreshold < norm.resumeThreshold)
+        #expect(norm.resumeThreshold < aggr.resumeThreshold)
+    }
+
+    @Test func smartPauseCorruptFallback() throws {
+        let json = """
+        {"smartPause":"invalid_mode"}
+        """.data(using: .utf8)!
+        let s = try JSONDecoder().decode(CueSettings.self, from: json)
+        #expect(s.smartPause == .off)
     }
 
     @Test func corruptFieldFallsBackToDefault() throws {
