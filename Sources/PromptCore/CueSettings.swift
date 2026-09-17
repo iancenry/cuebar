@@ -4,7 +4,32 @@ import Foundation
 /// Cuebar keeps a single source of truth, persisted as JSON.
 public struct CueSettings: Codable, Equatable, Sendable {
     public enum GuidanceMode: String, Codable, Sendable, CaseIterable {
-        case wordTracking, classic, voiceActivated
+        case classic, wordTracking, voiceActivated
+        case auto
+
+        /// User-facing label for the settings picker.
+        public var label: String {
+            switch self {
+            case .classic: return "Traditional"
+            case .auto: return "Auto"
+            case .voiceActivated: return "Voice"
+            case .wordTracking: return "Smart"
+            }
+        }
+
+        /// Whether this mode needs an active microphone.
+        public var usesVoice: Bool {
+            switch self {
+            case .wordTracking, .voiceActivated: return true
+            case .classic, .auto: return false
+            }
+        }
+
+        /// Whether this mode uses voice matching (SpeechMatcher) rather
+        /// than just voice-activated scrolling.
+        public var usesSpeechMatching: Bool {
+            self == .wordTracking
+        }
     }
     public enum FontFamily: String, Codable, Sendable, CaseIterable {
         case sans, serif, mono, dyslexia

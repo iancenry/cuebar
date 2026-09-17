@@ -6,13 +6,16 @@ struct VoiceTab: View {
 
     var body: some View {
         SettingsTab {
-            Picker("Mode", selection: $settings.settings.guidance) {
-                Text("Word Tracking").tag(CueSettings.GuidanceMode.wordTracking)
-                Text("Classic").tag(CueSettings.GuidanceMode.classic)
-                Text("Voice-Activated").tag(CueSettings.GuidanceMode.voiceActivated)
+            Section("Follow mode") {
+                Picker("Mode", selection: $settings.settings.guidance) {
+                    ForEach(CueSettings.GuidanceMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text(guidanceBlurb)
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            .pickerStyle(.segmented)
-            Text(guidanceBlurb).font(.caption).foregroundStyle(.secondary)
             Picker("Speech language", selection: $settings.settings.speechLanguage) {
                 Text("English (US)").tag("en-US")
                 Text("English (UK)").tag("en-GB")
@@ -36,12 +39,14 @@ struct VoiceTab: View {
 
     private var guidanceBlurb: String {
         switch settings.settings.guidance {
-        case .wordTracking:
-            return "Highlights each word as you say it. Needs mic + speech recognition."
         case .classic:
             return "Constant-speed scroll. No mic needed — manual-first and reliable."
+        case .auto:
+            return "Scroll based on your configured WPM. No mic needed — great when you know your pace."
         case .voiceActivated:
-            return "Scrolls while you speak, pauses in silence. Needs mic."
+            return "Scrolls while you speak, pauses in silence. Follows your speed but not your words."
+        case .wordTracking:
+            return "Follows what you're actually saying — tolerates skipped words, repeats, and fillers. Falls back to WPM if you go quiet."
         }
     }
 }

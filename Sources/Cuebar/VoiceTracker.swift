@@ -27,6 +27,9 @@ final class VoiceTracker {
     private(set) var isSpeaking = false
     private(set) var lastTranscript = ""
     private(set) var driverName = ""
+    /// Wall-clock time of the last successful speech match. Smart mode
+    /// uses this to detect silence and fall back to WPM auto-scroll.
+    private(set) var lastVoiceMatchDate: Date?
     /// Recent input levels (~6 s at the 8 Hz ticker) for the waveform.
     /// Appends flat zeros when idle so the wave settles instead of freezing.
     private(set) var levelHistory: [Double] = Array(repeating: 0, count: 48)
@@ -85,6 +88,7 @@ final class VoiceTracker {
         driverName = ""
         audioLevel = 0
         isSpeaking = false
+        lastVoiceMatchDate = nil
         if state == .listening || state == .requesting {
             state = .stopped
         }
@@ -145,6 +149,7 @@ extension VoiceTracker: TranscriptionEvents {
                                             words: engine.words,
                                             fromWordIndex: engine.currentWordIndex ?? 0) {
             engine.confirmReadThroughWord(end)
+            lastVoiceMatchDate = Date()
         }
     }
 

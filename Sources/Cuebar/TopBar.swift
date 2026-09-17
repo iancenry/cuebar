@@ -26,7 +26,7 @@ struct TopBar: View {
             .frame(width: 168)
             Spacer()
             StatusPill(isPlaying: engine.isPlaying, showElapsed: settings.settings.showElapsed)
-            if settings.settings.guidance != .classic {
+            if settings.settings.guidance.usesVoice {
                 MicStatus(voice: voice, compact: true)
             }
             Text(engine.boostMultiplier > 1.0

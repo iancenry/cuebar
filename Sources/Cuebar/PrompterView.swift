@@ -165,7 +165,7 @@ struct PrompterBody: View {
     private func headerRow(showSpeed: Bool) -> some View {
         HStack(spacing: 12) {
             StatusPill(isPlaying: engine.isPlaying, showElapsed: settings.settings.showElapsed)
-            if settings.settings.guidance != .classic {
+            if settings.settings.guidance.usesVoice {
                 MicStatus(voice: voice, compact: compact || !showSpeed)
             }
             Spacer()

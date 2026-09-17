@@ -17,6 +17,10 @@ struct PlaybackDriver: View {
     @State private var lastTick: Date?
     @State private var voiceTask: Task<Void, Never>?
 
+    /// Smart mode: voice matching drives while speaking; WPM auto-scroll
+    /// kicks in after this many seconds of silence.
+    private static let smartSilenceTimeout: TimeInterval = 2.0
+
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
@@ -79,18 +83,49 @@ struct PlaybackDriver: View {
         let delta: Double = lastTick.map { date.timeIntervalSince($0) } ?? 1.0 / 60
         lastTick = date
         voice.pollVoice()
-        let guidance: CueSettings.GuidanceMode = settings.settings.guidance
-        let denied: Bool = voice.state == .denied
-        let speaking: Bool = voice.isSpeaking
+        let guidance = settings.settings.guidance
+        let denied = voice.state == .denied
+        let speaking = voice.isSpeaking
+
         switch guidance {
-        case .classic:
+        case .classic, .auto:
             engine.tick(delta)
+
         case .voiceActivated:
             if speaking { engine.tick(delta) }
+
         case .wordTracking:
-            // Voice drives; the timer is the fallback when the mic is denied.
-            if denied { engine.tick(delta) }
+            // Smart mode: voice matching drives (via VoiceTracker.transcript),
+            // but WPM auto-scroll kicks in after silence. The mic-denied
+            // fallback always uses WPM so the script still advances.
+            if denied {
+                engine.tick(delta)
+            } else if speaking || !voiceSilentTooLong {
+                // Voice is active or silence is within the grace window:
+                // let the voice matcher drive (it calls confirmRead).
+                // If the matcher hasn't fired yet (speech just started),
+                // we still tick WPM so the highlight doesn't stall waiting
+                // for the first transcript.
+                if !speaking {
+                    // Grace period: voice just stopped, matcher might still
+                    // have a final match incoming. Don't tick — let the
+                    // voice match land first.
+                } else {
+                    // While speaking, WPM also ticks as a gentle backup so
+                    // the highlight doesn't freeze if the matcher is slow.
+                    engine.tick(delta)
+                }
+            } else {
+                // Silent too long: WPM fallback keeps the script moving.
+                engine.tick(delta)
+            }
         }
+    }
+
+    /// True when the last voice match was recent (within the grace window).
+    private var voiceSilentTooLong: Bool {
+        guard let last = voice.lastVoiceMatchDate else { return true }
+        return Date().timeIntervalSince(last) > Self.smartSilenceTimeout
     }
 
     private func advance(_ progress: Double) {
@@ -127,9 +162,9 @@ struct PlaybackDriver: View {
         ReadingWindow.isPauseCue(cue)
     }
 
+    /// Whether the current guidance mode needs a live microphone.
     private var voiceMode: Bool {
-        settings.settings.guidance == .wordTracking
-            || settings.settings.guidance == .voiceActivated
+        settings.settings.guidance.usesVoice
     }
 
     private func syncVoice() {
