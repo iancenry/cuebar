@@ -1,15 +1,16 @@
 import SwiftUI
 import PromptCore
 
-/// Script manager sidebar: search, category chips, and script cards.
-/// Categories live in a chip row under the search field so the script
-/// list gets the full height.
+/// Script manager sidebar, Codex-style: a quiet library tree. "New
+/// script" sits up top like an action, folders list the categories, and
+/// each script is an indented plain row under its folder.
 struct SidebarView: View {
     @Bindable var scripts: ScriptStore
     var wordsPerSecond: Double
     var onPick: (UUID) -> Void
     var onNew: () -> Void
     var onCategory: (String, UUID) -> Void
+    var onExport: (ScriptDocument) -> Void = { _ in }
     @State private var search = ""
     @State private var filter: String? = nil
     @State private var showingNewCategory = false
@@ -35,7 +36,6 @@ struct SidebarView: View {
         return searched.filter { $0.category == filter }
     }
 
-    /// One pass over the scripts instead of a scan per category row.
     private var countsByCategory: [String: Int] {
         var counts: [String: Int] = [:]
         for doc in scripts.scripts {
@@ -44,71 +44,89 @@ struct SidebarView: View {
         return counts
     }
 
+    /// Scripts under each folder for the tree, honoring the search text.
+    private func scripts(in category: String) -> [ScriptDocument] {
+        searched.filter { $0.category == category }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Scripts").font(.headline)
-                Spacer()
-                Button(action: onNew) { Image(systemName: "plus") }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("New script")
-                    .help("New script (Cmd-N)")
-            }
-            .padding([.horizontal, .top])
-            .padding(.bottom, 8)
-            SearchField(text: $search)
-                .padding(.horizontal)
-                .padding(.bottom, 10)
-            FlowLayout(spacing: 6, lineSpacing: 6) {
-                CategoryChip(name: "All", count: scripts.scripts.count,
-                             selected: filter == nil) { filter = nil }
-                ForEach(scripts.knownCategories, id: \.self) { name in
-                    CategoryChip(name: name, count: countsByCategory[name] ?? 0,
-                                 selected: filter == name) {
-                        filter = (filter == name) ? nil : name
-                    }
+            // Action row: the sidebar's primary verb, Codex-style.
+            Button(action: onNew) {
+                HStack(spacing: 8) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.callout)
+                    Text("New script")
+                        .font(.callout)
+                    Spacer()
                 }
+                .foregroundStyle(CuePalette.ink)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 10)
-            Divider().opacity(0.35)
+            .buttonStyle(.plain)
+            .accessibilityLabel("New script")
+            .help("New script (Cmd-N)")
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            SearchField(text: $search)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
             ScrollView {
-                LazyVStack(spacing: 6) {
-                    ForEach(visible) { doc in
-                        ScriptCard(
-                            doc: doc,
-                            selected: doc.id == scripts.selectedID,
-                            duration: ReadingWindow.durationString(
-                                wordCount: doc.wordCount,
-                                wordsPerSecond: wordsPerSecond),
-                            words: Self.countFormatter.string(for: doc.wordCount) ?? "\(doc.wordCount)",
-                            categories: scripts.knownCategories,
-                            onCategory: { onCategory($0, doc.id) },
-                            onNewCategory: {
-                                pendingCategoryDoc = doc.id
-                                showingNewCategory = true
-                            }
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture { onPick(doc.id) }
-                        .contextMenu {
-                            Button("Delete", role: .destructive) { scripts.delete(doc.id) }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Library")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(CuePalette.muted)
+                        .padding(.leading, 10)
+                        .padding(.top, 12)
+                        .padding(.bottom, 6)
+                    LibraryFolder(name: "All Scripts",
+                                  count: scripts.scripts.count,
+                                  selected: filter == nil) {
+                        filter = nil
+                    }
+                    // One folder per category; scripts nest beneath.
+                    ForEach(scripts.knownCategories, id: \.self) { category in
+                        LibraryFolder(name: category,
+                                      count: countsByCategory[category] ?? 0,
+                                      selected: filter == category) {
+                            filter = (filter == category) ? nil : category
+                        }
+                    if filter == nil || filter == category {
+                        ForEach(scripts(in: category)) { doc in
+                            ScriptRow(
+                                doc: doc,
+                                selected: doc.id == scripts.selectedID,
+                                duration: ReadingWindow.durationString(
+                                    wordCount: doc.wordCount,
+                                    wordsPerSecond: wordsPerSecond),
+                                categories: scripts.knownCategories,
+                                onPick: { onPick(doc.id) },
+                                onCategory: { onCategory($0, doc.id) },
+                                onNewCategory: {
+                                    pendingCategoryDoc = doc.id
+                                    showingNewCategory = true
+                                },
+                                onExport: { onExport(doc) },
+                                onDelete: { scripts.delete(doc.id) }
+                            )
                         }
                     }
-                    if visible.isEmpty {
-                        Text(search.isEmpty ? "No scripts here yet" : "No matches")
+                    }
+                    if visible.isEmpty && !scripts.scripts.isEmpty {
+                        Text(search.isEmpty ? "Nothing in this folder" : "No matches")
                             .font(.caption)
                             .foregroundStyle(CuePalette.muted)
-                            .padding(.top, 24)
-                            .frame(maxWidth: .infinity)
+                            .padding(.leading, 10)
+                            .padding(.top, 12)
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.top, 10)
-                .padding(.bottom, 8)
+                .padding(.bottom, 10)
             }
         }
-        .frame(minWidth: 200, idealWidth: 250, maxWidth: 300)
+        .frame(minWidth: 200, idealWidth: 240, maxWidth: 300)
         .alert("New category", isPresented: $showingNewCategory) {
             TextField("Name", text: $newCategoryName)
             Button("Add") {
@@ -127,31 +145,66 @@ struct SidebarView: View {
     }
 }
 
-struct ScriptCard: View {
+/// Folder row: category header, click filters the library to it.
+struct LibraryFolder: View {
+    let name: String
+    let count: Int
+    let selected: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: selected ? "folder.fill" : "folder")
+                    .font(.callout)
+                    .foregroundStyle(selected ? CuePalette.peach : CuePalette.muted)
+                    .frame(width: 16)
+                Text(name)
+                    .font(.callout.weight(selected ? .medium : .regular))
+                    .foregroundStyle(CuePalette.ink)
+                    .lineLimit(1)
+                Spacer()
+                Text("\(count)")
+                    .font(.caption).monospacedDigit()
+                    .foregroundStyle(CuePalette.muted)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(selected ? CuePalette.card : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// One script under its folder — single-line title, duration on the
+/// right, subtle highlight when selected.
+struct ScriptRow: View {
     let doc: ScriptDocument
     let selected: Bool
     let duration: String
-    let words: String
     let categories: [String]
+    var onPick: () -> Void
     var onCategory: (String) -> Void
     var onNewCategory: () -> Void
+    var onExport: () -> Void
+    var onDelete: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Capsule()
-                .fill(selected ? CuePalette.peach : CuePalette.muted.opacity(0.25))
-                .frame(width: 3, height: 34)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(doc.title)
-                    .font(.body.weight(selected ? .semibold : .regular))
-                    .lineLimit(1)
-                Text("\(words) words · \(duration)")
-                    .font(.caption)
-                    .foregroundStyle(CuePalette.muted)
-                    .monospacedDigit()
-                    .lineLimit(1)
-            }
+        HStack(spacing: 8) {
+            Circle()
+                .fill(selected ? CuePalette.peach : CuePalette.muted.opacity(0.35))
+                .frame(width: 5, height: 5)
+            Text(doc.title)
+                .font(.callout.weight(selected ? .medium : .regular))
+                .foregroundStyle(CuePalette.ink.opacity(selected ? 1 : 0.85))
+                .lineLimit(1)
             Spacer(minLength: 4)
+            Text(duration)
+                .font(.caption2).monospacedDigit()
+                .foregroundStyle(CuePalette.muted)
+                .lineLimit(1)
             Menu {
                 Section("Move to") {
                     ForEach(categories, id: \.self) { name in
@@ -163,50 +216,26 @@ struct ScriptCard: View {
                 }
             } label: {
                 Image(systemName: "chevron.right")
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(CuePalette.muted)
-                    .padding(6)
+                    .padding(4)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
             .help("Move to category")
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            selected ? CuePalette.card : Color.clear,
-            in: RoundedRectangle(cornerRadius: 10)
-        )
-        .overlay {
-            if selected {
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(CuePalette.peach.opacity(0.35), lineWidth: 1)
-            }
+        .padding(.leading, 14)
+        .padding(.trailing, 6)
+        .padding(.vertical, 6)
+        .background(selected ? CuePalette.card : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .onTapGesture { onPick() }
+        .contextMenu {
+            Button("Export…") { onExport() }
+            Divider()
+            Button("Delete", role: .destructive) { onDelete() }
         }
-    }
-}
-
-struct CategoryChip: View {
-    let name: String
-    let count: Int
-    let selected: Bool
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Text(name)
-                    .font(.caption.weight(selected ? .semibold : .regular))
-                Text("\(count)")
-                    .font(.caption2).monospacedDigit()
-                    .foregroundStyle(selected ? CuePalette.onHighlight.opacity(0.75) : CuePalette.muted)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(selected ? CuePalette.peach : CuePalette.card, in: Capsule())
-            .foregroundStyle(selected ? CuePalette.onHighlight : CuePalette.ink)
-        }
-        .buttonStyle(.plain)
     }
 }
 

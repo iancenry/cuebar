@@ -102,6 +102,15 @@ public final class ScriptStore {
         return doc
     }
 
+    /// Insert an imported script without changing the selection.
+    @discardableResult
+    public func importScript(title: String, body: String) -> ScriptDocument {
+        let doc = ScriptDocument(title: title, body: body)
+        scripts.insert(doc, at: 0)
+        save()
+        return doc
+    }
+
     public func delete(_ id: UUID) {
         scripts.removeAll(where: { $0.id == id })
         if selectedID == id { selectedID = scripts.first?.id }

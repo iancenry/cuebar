@@ -30,7 +30,8 @@ struct ContentView: View {
                             onPick: pick, onNew: {
                                 pick(scripts.add().id)
                             },
-                            onCategory: { setCategory($0, for: $1) })
+                            onCategory: { setCategory($0, for: $1) },
+                            onExport: { ScriptIO.export($0) })
                 if mode == .perform {
                     VStack(spacing: 0) {
                         PrompterBody(engine: engine, tokens: tokens, settings: settings,

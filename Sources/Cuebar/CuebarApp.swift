@@ -45,6 +45,10 @@ struct CuebarApp: App {
                 Divider()
                 Button("New Script") { newScript() }
                     .keyboardShortcut("n", modifiers: [.command])
+                Button("Import Scripts…") { importScripts() }
+                    .keyboardShortcut("o", modifiers: [.command])
+                Button("Export Script…") { exportSelected() }
+                    .keyboardShortcut("s", modifiers: [.command])
             }
         }
         Settings {
@@ -68,5 +72,23 @@ struct CuebarApp: App {
         tokens = []
         engine.loadScript("")
         voice.recycle()
+    }
+
+    /// ⌘O / File menu: turn .txt/.md files into scripts.
+    private func importScripts() {
+        guard let parsed = ScriptIO.importScripts(), !parsed.isEmpty else { return }
+        var lastID: UUID?
+        for item in parsed {
+            lastID = scripts.importScript(title: item.title, body: item.body).id
+        }
+        if let lastID {
+            scripts.select(lastID)
+        }
+    }
+
+    /// ⌘S / File menu: save the selected script wherever the user wants.
+    private func exportSelected() {
+        guard let doc = scripts.selected else { return }
+        ScriptIO.export(doc)
     }
 }
