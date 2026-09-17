@@ -72,6 +72,21 @@ import PromptCore
         #expect(ReadingWindow.pauseCueWordIndices(trailing).isEmpty)
     }
 
+    @Test func timedCuesHoldTheNextWord() {
+        let tokens = ScriptParser.parse("a [smile] [pause 2s] b [breath 1.5] c")
+        let holds = ReadingWindow.timedHoldCues(tokens)
+        // words: a(0) b(1) c(2); the pause arms b, the breath arms c
+        #expect(holds == [1: 2.0, 2: 1.5])
+        // Timed cues are NOT bare-pause indices (no double handling).
+        #expect(ReadingWindow.pauseCueWordIndices(tokens).isEmpty)
+    }
+
+    @Test func barePauseCuesExcludeTimedOnes() {
+        let tokens = ScriptParser.parse("one [pause] two [pause 2s] three [break] four")
+        #expect(ReadingWindow.pauseCueWordIndices(tokens) == [1, 3]) // bare + [break]
+        #expect(ReadingWindow.timedHoldCues(tokens) == [2: 2.0])
+    }
+
     @Test func pauseCueRecognition() {
         #expect(ReadingWindow.isPauseCue("[pause]") == true)
         #expect(ReadingWindow.isPauseCue("[wait for laughter]") == true)

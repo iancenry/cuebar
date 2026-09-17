@@ -198,7 +198,8 @@ struct PrompterBody: View {
 
     private func headerRow(showSpeed: Bool) -> some View {
         HStack(spacing: 12) {
-            StatusPill(isPlaying: engine.isPlaying, showElapsed: settings.settings.showElapsed)
+            StatusPill(isPlaying: engine.isPlaying, showElapsed: settings.settings.showElapsed,
+                       holdRemaining: engine.holdRemaining)
             if settings.settings.guidance.usesVoice {
                 MicStatus(voice: voice, compact: compact || !showSpeed)
             }
@@ -306,29 +307,52 @@ struct TokenPageView: View {
     }
 }
 
-/// Pink stage-direction badge. Shared by the prompter and the settings preview.
+/// Pink stage-direction badge. Shared by the prompter and the settings
+/// preview. Each cue kind gets its own symbol so a script reads at a
+/// glance: [pause] shows the pause glyph, [drink] a drop, [slide] the
+/// slides — all tinted by the configured cue color.
 struct CueBadge: View {
     let text: String
     let settings: CueSettings
     let fontSize: Double
 
-    /// "[pause]" renders as a badge reading "pause".
+    /// "[pause 2s]" renders as a badge reading "pause 2s".
     static func label(for cue: String) -> String {
-        var text = cue
-        if text.hasPrefix("[") { text.removeFirst() }
-        if text.hasSuffix("]") { text.removeLast() }
-        return text.trimmingCharacters(in: .whitespaces)
+        ScriptCue.interpret(cue).label
+    }
+
+    private var icon: String? {
+        switch ScriptCue.interpret(text).kind {
+        case .pause: return "pause.fill"
+        case .wait: return "hourglass"
+        case .hold: return "hand.raised.fill"
+        case .breath: return "wind"
+        case .stop: return "stop.fill"
+        case .smile: return "face.smiling"
+        case .look: return "eye"
+        case .emphasis: return "exclamationmark"
+        case .demo: return "play.rectangle"
+        case .drink: return "drop"
+        case .slide: return "rectangle.on.rectangle"
+        case .other: return nil
+        }
     }
 
     var body: some View {
-        Text(text)
-            .font(settings.fontFamily.font(size: fontSize * 0.72, weight: .semibold).italic())
-            .foregroundStyle(settings.cueColor.color)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 3)
-            .background(settings.cueColor.color.opacity(settings.cueBrightness.badgeOpacity),
-                        in: Capsule())
-            .help("Stage cue — not tracked")
+        HStack(spacing: 3) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(settings.fontFamily.font(size: fontSize * 0.55, weight: .semibold))
+            }
+            Text(text)
+                .font(settings.fontFamily.font(size: fontSize * 0.72, weight: .semibold).italic())
+        }
+        .foregroundStyle(settings.cueColor.color)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 3)
+        .background(settings.cueColor.color.opacity(settings.cueBrightness.badgeOpacity),
+                    in: Capsule())
+        .help("Stage cue — timed cues hold playback automatically")
     }
 }
 

@@ -37,6 +37,10 @@ public final class PromptEngine {
     /// True while easing out after `pause()` — ticks must keep coming or
     /// the stop never settles (voice-gated tickers need this to check).
     public var isStopping: Bool { stopping }
+    /// Seconds left in a timed-cue hold, for countdown UIs.
+    public private(set) var holdRemaining: TimeInterval?
+    public var isHolding: Bool { holdUntil != nil }
+    private var holdUntil: Date?
 
     private var cachedTotal: Int = 0
     private var wordStartOffsets: [Int] = []
@@ -69,6 +73,7 @@ public final class PromptEngine {
         }
         paragraphStarts = Self.paragraphStartIndices(in: tokens, wordCount: words.count)
         rebuildIndex()
+        cancelHold()
         charRemainder = 0
         stopping = false
         if preservingPosition {
@@ -124,6 +129,7 @@ public final class PromptEngine {
 
     public func play() {
         guard !words.isEmpty else { return }
+        cancelHold()
         if readCharCount >= cachedTotal {
             // Already at the end: restart instead of flashing playing.
             setReadCharCount(0)
@@ -134,18 +140,39 @@ public final class PromptEngine {
     }
     /// Soft stop: velocity eases out over ~0.4s instead of halting dead.
     /// Ticks keep nudging forward with decaying speed until settled.
+    /// Cancels any timed hold — manual always wins.
     public func pause() {
+        cancelHold()
         guard isPlaying else { return }
         stopping = true
     }
     /// Immediate halt for teardown paths (script switch, hide). Playback
     /// controls should prefer `pause()` for the eased feel.
     public func stopImmediately() {
+        cancelHold()
         stopping = false
         isPlaying = false
         effectiveWordsPerSecond = 0
     }
     public func toggle() { isPlaying && !stopping ? pause() : play() }
+
+    // MARK: - Timed holds ([pause 2s])
+
+    /// Freeze the reading position for a timing cue's duration. Ticks
+    /// count the hold down instead of advancing; when it expires the
+    /// velocity ramps back up from zero like a fresh start. Any manual
+    /// control (play/pause/jump) cancels the hold.
+    public func hold(for seconds: TimeInterval) {
+        guard seconds.isFinite, seconds > 0, isPlaying else { return }
+        stopping = false
+        holdUntil = Date().addingTimeInterval(seconds)
+        holdRemaining = seconds
+    }
+
+    private func cancelHold() {
+        holdUntil = nil
+        holdRemaining = nil
+    }
 
     /// Momentary catch-up multiplier (hold-to-boost). Clamped to
     /// 1.0…2.5; the velocity filter smooths press and release.
@@ -167,6 +194,19 @@ public final class PromptEngine {
         guard isPlaying || stopping else { return }
         guard delta.isFinite, delta > 0 else { return }
         let dt = min(delta, Self.maxTickDelta)
+        // Timed hold: freeze in place, counting down by tick (so tests
+        // and tick cadence stay deterministic). The wall-clock deadline
+        // is a backstop for stalled tickers. Expiry releases and the
+        // velocity ramp-up below restarts from zero.
+        if let until = holdUntil {
+            let tickRemaining = (holdRemaining ?? until.timeIntervalSinceNow) - dt
+            if tickRemaining > 0, until.timeIntervalSinceNow > 0 {
+                holdRemaining = tickRemaining
+                effectiveWordsPerSecond = 0
+                return
+            }
+            cancelHold()
+        }
         let target = stopping ? 0 : wordsPerSecond * boostMultiplier
         let tau = target > effectiveWordsPerSecond ? Self.rampUpTau : Self.rampDownTau
         let blend = 1 - exp(-dt / tau)
@@ -191,6 +231,7 @@ public final class PromptEngine {
     @discardableResult
     public func jumpTo(wordIndex: Int) -> Int {
         guard !words.isEmpty else { return 0 }
+        cancelHold()
         if wordIndex >= words.count {
             charRemainder = 0
             setReadCharCount(cachedTotal)

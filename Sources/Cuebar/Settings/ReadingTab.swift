@@ -77,7 +77,7 @@ struct ReadingTab: View {
             SettingsSection(title: "Cues [like this]") {
                 ToggleRow(title: "Show cues",
                           isOn: $settings.settings.showCues,
-                          caption: "[bracketed] directions render as badges and never count as words.")
+                          caption: "[bracketed] directions render as badges and never count as words. Timed cues execute: [pause 2s] holds the prompter for 2 seconds, then continues.")
                 SettingRow(label: "Cue color") {
                     Picker("Cue color", selection: $settings.settings.cueColor) {
                         ForEach(CueSettings.Accent.allCases, id: \.self) {
@@ -106,7 +106,7 @@ struct ReadingTab: View {
             SettingsSection(title: "Pause") {
                 ToggleRow(title: "Pause at [pause] cues",
                           isOn: $settings.settings.pauseOnPauseCues,
-                          caption: "When the highlight reaches [pause], [wait], or [hold], ease to a stop.")
+                          caption: "Bare [pause], [wait] and [hold] ease to a stop on arrival. Timed cues ([pause 2s], [hold 500ms], [breath 1.5]) wait their duration automatically, regardless of this setting.")
                 SettingRow(label: "Smart pause") {
                     Picker("Smart pause", selection: $settings.settings.smartPause) {
                         ForEach(CueSettings.SmartPauseMode.allCases, id: \.self) { mode in

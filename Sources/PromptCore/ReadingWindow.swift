@@ -152,10 +152,12 @@ public enum ReadingWindow: Sendable {
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 
-    // MARK: - Pause cues
+    // MARK: - Cues
 
-    /// Word indices that follow a [pause]/[wait]/[hold]-style cue. The
-    /// driver auto-pauses when the highlight steps onto one of these.
+    /// Word indices that follow a *bare* timing cue ([pause], [wait],
+    /// [hold] — no duration). The driver auto-pauses on these when the
+    /// pause-cues setting is on. Timed cues ([pause 2s]) are handled by
+    /// `timedHoldCues` instead.
     public static func pauseCueWordIndices(_ tokens: [ScriptToken]) -> Set<Int> {
         var out: Set<Int> = []
         var wordCount = 0
@@ -167,7 +169,31 @@ public enum ReadingWindow: Sendable {
                 armed = false
                 wordCount += 1
             case .cue(let c):
-                if isPauseCue(c) { armed = true }
+                armed = isPauseCue(c) && ScriptCue.interpret(c).seconds == nil
+            case .paragraphBreak:
+                break
+            }
+        }
+        return out
+    }
+
+    /// Timed holds: word index that follows the cue → seconds to freeze.
+    /// `[smile][pause 2s] word` arms word 0 with 2 s.
+    public static func timedHoldCues(_ tokens: [ScriptToken]) -> [Int: TimeInterval] {
+        var out: [Int: TimeInterval] = [:]
+        var wordCount = 0
+        var pending: TimeInterval? = nil
+        for t in tokens {
+            switch t {
+            case .word:
+                if let seconds = pending {
+                    out[wordCount] = seconds
+                    pending = nil
+                }
+                wordCount += 1
+            case .cue(let c):
+                let cue = ScriptCue.interpret(c)
+                pending = cue.kind.isTiming ? cue.seconds : nil
             case .paragraphBreak:
                 break
             }
@@ -176,11 +202,8 @@ public enum ReadingWindow: Sendable {
     }
 
     public static func isPauseCue(_ cue: String) -> Bool {
-        let text = cue.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-            .lowercased()
-        return text.contains("pause") || text.contains("wait")
-            || text.contains("hold") || text == "stop"
-            || text.contains("breath") || text.contains("break")
+        let c = ScriptCue.interpret(cue)
+        if c.kind.isTiming { return true }
+        return c.label.lowercased().contains("break")
     }
 }

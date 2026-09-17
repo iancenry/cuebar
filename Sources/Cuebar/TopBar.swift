@@ -17,7 +17,8 @@ struct TopBar: View {
         HStack(spacing: 12) {
             ModeSwitcher(mode: $mode)
             Spacer()
-            StatusPill(isPlaying: engine.isPlaying, showElapsed: settings.settings.showElapsed)
+            StatusPill(isPlaying: engine.isPlaying, showElapsed: settings.settings.showElapsed,
+                       holdRemaining: engine.holdRemaining)
             if settings.settings.guidance.usesVoice {
                 MicStatus(voice: voice, compact: true)
             }

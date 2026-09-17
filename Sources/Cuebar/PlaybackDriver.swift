@@ -86,7 +86,7 @@ struct PlaybackDriver: View {
                 advance(progress)
             }
             .onChange(of: engine.currentWordIndex) { _, index in
-                autoPauseAtCue(index)
+                handleCueArrival(index)
             }
             .onChange(of: settings.settings.guidance) { _, _ in
                 syncVoice()
@@ -150,10 +150,12 @@ struct PlaybackDriver: View {
         // Armed only once the mic has actually heard speech — otherwise a
         // silent mic reads as "eternal silence" and instantly auto-pauses.
         // Stays armed after the auto-pause (isPlaying goes false there):
-        // without it the auto-RESUME branch could never run again.
+        // without it the auto-RESUME branch could never run again. Holds
+        // are excluded: a scripted 2 s wait isn't the reader going quiet.
         if guidance.usesVoice, settings.settings.smartPause != .off,
            voice.speechSeenSincePlay,
-           engine.isPlaying || smartPauseDidAutoPause {
+           engine.isPlaying || smartPauseDidAutoPause,
+           !engine.isHolding {
             tickSmartPause(speaking: speaking, delta: delta)
         }
 
@@ -166,9 +168,10 @@ struct PlaybackDriver: View {
             // speech this session, keep ticking so Play is never a no-op
             // (a silent or wrong-input mic used to freeze the prompter).
             // The matcher (wordTracking) corrects position on top of the
-            // ticking. The eased stop after pause() must always tick, or
-            // it never settles and Pause appears to do nothing.
-            if speaking || !voice.speechSeenSincePlay || engine.isStopping {
+            // ticking. The eased stop after pause() and the timed-cue
+            // countdown must always tick, or neither ever settles.
+            if speaking || !voice.speechSeenSincePlay
+                || engine.isStopping || engine.isHolding {
                 engine.tick(delta)
             }
         }
@@ -223,16 +226,19 @@ struct PlaybackDriver: View {
         engine.play()
     }
 
-    /// Optional automatic pause: when the highlight steps onto a word that
-    /// follows a [pause]/[wait]/[hold] cue, ease out. Manual jumps that land
-    /// past the cue don't retro-trigger — only forward arrival does, via the
-    /// currentWordIndex change stream.
-    private func autoPauseAtCue(_ index: Int?) {
-        guard settings.settings.pauseOnPauseCues,
-              engine.isPlaying,
-              let idx = index,
-              Self.pauseCueWordIndices(tokens).contains(idx) else { return }
-        engine.pause()
+    /// Cue arrival, forward-only (jumps past a cue never retro-trigger):
+    /// timed cues hold playback for their duration, bare [pause]-family
+    /// cues auto-pause when the setting is on.
+    private func handleCueArrival(_ index: Int?) {
+        guard engine.isPlaying, let idx = index else { return }
+        if let seconds = ReadingWindow.timedHoldCues(tokens)[idx] {
+            engine.hold(for: seconds)
+            return
+        }
+        if settings.settings.pauseOnPauseCues,
+           Self.pauseCueWordIndices(tokens).contains(idx) {
+            engine.pause()
+        }
     }
 
     static func pauseCueWordIndices(_ tokens: [ScriptToken]) -> Set<Int> {

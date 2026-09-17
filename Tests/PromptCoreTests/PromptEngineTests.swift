@@ -136,4 +136,48 @@ import PromptCore
         let starts = PromptEngine.paragraphStartIndices(in: "one two\n\nthree four", wordCount: 4)
         #expect(starts == [0, 2])
     }
+
+    // MARK: - Timed holds ([pause 2s])
+
+    @Test @MainActor func holdFreezesThenResumes() {
+        let e = PromptEngine()
+        e.loadScript("alpha beta gamma delta")
+        e.play()
+        e.jumpTo(wordIndex: 1)
+        let frozen = e.readCharCount
+        e.hold(for: 2)
+        #expect(e.isHolding)
+        #expect(e.holdRemaining == 2)
+        e.tick(0.25)
+        #expect(e.readCharCount == frozen) // frozen mid-hold
+        e.tick(0.25)
+        #expect(e.holdRemaining == 1.5)
+        for _ in 0..<7 { e.tick(0.25) } // 2 s of ticks total: expired
+        #expect(!e.isHolding)
+        let afterHold = e.readCharCount
+        e.tick(2) // past ramp-up: must advance again
+        #expect(e.readCharCount > afterHold)
+    }
+
+    @Test @MainActor func manualControlsCancelHold() {
+        let e = PromptEngine()
+        e.loadScript("alpha beta gamma delta")
+        e.play()
+        e.jumpTo(wordIndex: 1)
+        e.hold(for: 2)
+        e.pause() // manual pause wins
+        #expect(!e.isHolding)
+        e.play()
+        e.hold(for: 2)
+        e.jumpTo(wordIndex: 3) // manual jump wins
+        #expect(!e.isHolding)
+        #expect(e.currentWordIndex == 3)
+    }
+
+    @Test @MainActor func holdRequiresPlayback() {
+        let e = PromptEngine()
+        e.loadScript("alpha beta")
+        e.hold(for: 2) // paused: no-op
+        #expect(!e.isHolding)
+    }
 }

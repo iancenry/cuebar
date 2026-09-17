@@ -111,17 +111,27 @@ enum CuePalette {
     static let pillRadius: CGFloat = 999
 }
 
-/// Status chip: "Reading… 00:14" / "Paused". Mural-style pill.
+/// Status chip: "Reading… 00:14" / "Holding 1.4s" / "Paused". Mural pill.
 struct StatusPill: View {
     let isPlaying: Bool
     var showElapsed: Bool = true
+    /// Countdown while a timed cue ([pause 2s]) freezes playback.
+    var holdRemaining: TimeInterval? = nil
+
+    private var label: String {
+        if let r = holdRemaining, r > 0.05 {
+            return "Holding \(String(format: "%.1f", r))s"
+        }
+        return isPlaying ? "Reading…" : "Paused"
+    }
 
     var body: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(isPlaying ? CuePalette.live : CuePalette.muted)
+                .fill(holdRemaining != nil ? CuePalette.peach
+                      : (isPlaying ? CuePalette.live : CuePalette.muted))
                 .frame(width: 7, height: 7)
-            Text(isPlaying ? "Reading…" : "Paused")
+            Text(label)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(isPlaying ? CuePalette.ink : CuePalette.muted)
             if isPlaying, showElapsed {
@@ -129,7 +139,7 @@ struct StatusPill: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(isPlaying ? "Reading" : "Paused")
+        .accessibilityLabel(label)
         .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
