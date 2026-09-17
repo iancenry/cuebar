@@ -51,6 +51,9 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // The traffic lights float over this corner (hidden title
+            // bar), Codex-style — keep clear of them.
+            Color.clear.frame(height: 30)
             // Action row: the sidebar's primary verb, Codex-style.
             Button(action: onNew) {
                 HStack(spacing: 8) {

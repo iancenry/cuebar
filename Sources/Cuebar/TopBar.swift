@@ -1,9 +1,9 @@
 import SwiftUI
 import PromptCore
 
-/// Perform-first top bar: script switcher, mode, one-glance status.
-/// Display configuration lives under the gear menu — not in the
-/// primary navigation.
+/// Slim content-column strip: mode switcher left, live status right.
+/// No app title — the menu bar and Dock already carry the name, and the
+/// traffic lights live over the sidebar.
 struct TopBar: View {
     @Bindable var settings: SettingsStore
     @Bindable var engine: PromptEngine
@@ -14,10 +14,7 @@ struct TopBar: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        HStack(spacing: 14) {
-            Text("Cuebar")
-                .font(.headline)
-                .padding(.leading, 76) // traffic lights with hidden title bar
+        HStack(spacing: 12) {
             ModeSwitcher(mode: $mode)
             Spacer()
             StatusPill(isPlaying: engine.isPlaying, showElapsed: settings.settings.showElapsed)

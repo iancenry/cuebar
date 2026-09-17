@@ -20,18 +20,21 @@ struct ContentView: View {
     @State private var sharing = SharingGuard()
 
     var body: some View {
-        VStack(spacing: 0) {
-            TopBar(settings: settings, engine: engine,
-                   overlay: overlay, voice: voice, tokens: tokens,
-                   mode: $mode)
-            Divider().opacity(0.4)
-            HSplitView {
-                SidebarView(scripts: scripts, wordsPerSecond: engine.wordsPerSecond,
-                            onPick: pick, onNew: {
-                                pick(scripts.add().id)
-                            },
-                            onCategory: { setCategory($0, for: $1) },
-                            onExport: { ScriptIO.export($0) })
+        HSplitView {
+            SidebarView(scripts: scripts, wordsPerSecond: engine.wordsPerSecond,
+                        onPick: pick, onNew: {
+                            pick(scripts.add().id)
+                        },
+                        onCategory: { setCategory($0, for: $1) },
+                        onExport: { ScriptIO.export($0) })
+            // The content column owns the (slim) top bar; the traffic
+            // lights live over the sidebar like Codex — no app-title
+            // strip spanning the window.
+            VStack(spacing: 0) {
+                TopBar(settings: settings, engine: engine,
+                       overlay: overlay, voice: voice, tokens: tokens,
+                       mode: $mode)
+                Divider().opacity(0.4)
                 if mode == .perform {
                     VStack(spacing: 0) {
                         PrompterBody(engine: engine, tokens: tokens, settings: settings,
@@ -40,11 +43,11 @@ struct ContentView: View {
                         TransportBar(engine: engine, settings: settings, overlay: overlay,
                                      voice: voice, tokens: tokens, follow: $follow)
                     }
-                    .frame(minWidth: 480)
                 } else {
                     editor
                 }
             }
+            .frame(minWidth: 520)
         }
         .background {
             PlaybackDriver(engine: engine, scripts: scripts, settings: settings,
