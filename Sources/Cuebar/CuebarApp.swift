@@ -45,7 +45,7 @@ struct CuebarApp: App {
         }
         Settings {
             SettingsView(settings: settings)
-                .frame(width: 640, height: 700)
+                .frame(width: 680, height: 700)
         }
     }
 

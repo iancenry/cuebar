@@ -6,83 +6,75 @@ struct DisplayTab: View {
 
     var body: some View {
         SettingsTab {
-            Section("Preview") {
+            SettingsSection(title: "Preview") {
                 ReadingPreview(settings: settings.settings)
-                    .padding(.vertical, 4)
-                Text("Live preview — reflects Display, Typography, and Reading.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                SettingsCaption(text: "Live preview — reflects every tab.")
             }
-            Picker("Overlay", selection: $settings.settings.overlayMode) {
-                Text("Notch").tag(CueSettings.OverlayMode.notch)
-                Text("Floating").tag(CueSettings.OverlayMode.floating)
-                Text("Fullscreen").tag(CueSettings.OverlayMode.fullscreen)
-            }
-            .pickerStyle(.segmented)
-            Text("Notch grows out of the camera housing like an expanded island. Floating is a draggable always-on-top panel. Fullscreen takes the target display.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Picker("Display", selection: $settings.settings.displayTarget) {
-                Text("Follow Mouse").tag(CueSettings.DisplayTarget.followMouse)
-                Text("Fixed Display").tag(CueSettings.DisplayTarget.fixed)
-            }
-            .pickerStyle(.segmented)
-#if os(macOS)
-            if settings.settings.displayTarget == .fixed {
-                Picker("Fixed display", selection: $settings.settings.fixedDisplayIndex) {
-                    ForEach(Array(DisplayInfo.names().enumerated()), id: \.offset) { i, name in
-                        Text(name).tag(i)
+            SettingsSection(title: "Overlay") {
+                SettingRow(label: "Placement") {
+                    Picker("Overlay", selection: $settings.settings.overlayMode) {
+                        Text("Notch").tag(CueSettings.OverlayMode.notch)
+                        Text("Floating").tag(CueSettings.OverlayMode.floating)
+                        Text("Fullscreen").tag(CueSettings.OverlayMode.fullscreen)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                SettingsCaption(text: "Notch grows out of the camera housing like an expanded island. Floating is a draggable always-on-top panel. Fullscreen takes the target display.")
+                SettingRow(label: "Display") {
+                    Picker("Display", selection: $settings.settings.displayTarget) {
+                        Text("Follow Mouse").tag(CueSettings.DisplayTarget.followMouse)
+                        Text("Fixed").tag(CueSettings.DisplayTarget.fixed)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                if settings.settings.displayTarget == .fixed {
+                    SettingRow(label: "Screen") {
+                        Picker("Fixed display", selection: $settings.settings.fixedDisplayIndex) {
+                            ForEach(Array(DisplayInfo.names().enumerated()), id: \.offset) { i, name in
+                                Text(name).tag(i)
+                            }
+                        }
                     }
                 }
+                ToggleRow(title: "Always on top",
+                          isOn: $settings.settings.alwaysOnTop,
+                          caption: "Floating and notch panels stay above other apps. Off lets them slide behind.")
+                ToggleRow(title: "Pop out when pressing Play",
+                          isOn: $settings.settings.popOutOnPlay,
+                          caption: "Manual pop-out lives in the transport bar and the gear menu — pressing Play auto-presents when this is on.")
             }
-#endif
-            Toggle("Always on top", isOn: $settings.settings.alwaysOnTop)
-            Text("Floating and notch panels stay above other apps. Off lets them slide behind.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Section("Pop-out") {
-                Toggle("Pop out overlay when pressing Play", isOn: $settings.settings.popOutOnPlay)
-                Text("Manual pop-out lives in the transport bar (expand icon) and the top-bar gear menu — pressing Play auto-presents when this is on.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            SettingsSection(title: "Opacity") {
+                ToggleRow(title: "Window opacity",
+                          isOn: $settings.settings.transparencyEnabled,
+                          caption: "Applies instantly to the open overlay.")
+                LabeledSlider(title: "Opacity",
+                              display: "\(Int(settings.settings.transparencyAmount * 100))%",
+                              value: $settings.settings.transparencyAmount,
+                              range: 0.3...1.0)
+                .disabled(!settings.settings.transparencyEnabled)
+                .opacity(settings.settings.transparencyEnabled ? 1 : 0.4)
             }
-            Toggle("Window opacity", isOn: $settings.settings.transparencyEnabled)
-            Slider(value: $settings.settings.transparencyAmount, in: 0.3...1.0) {
-                Text("Opacity \(Int(settings.settings.transparencyAmount * 100))%")
+            SettingsSection(title: "Privacy") {
+                ToggleRow(title: "Hide from screen sharing",
+                          isOn: $settings.settings.hideFromShare,
+                          caption: "Hides every Cuebar window from recordings and calls. Self-test: open the overlay, run screencapture ~/Desktop/test.png, confirm Cuebar is missing.")
+                ToggleRow(title: "Hide main window while presenting",
+                          isOn: $settings.settings.hideMainWhilePresenting,
+                          caption: "The main window steps aside when the overlay opens and returns when it closes.")
             }
-            .disabled(!settings.settings.transparencyEnabled)
-            Text("Applies instantly to the open overlay.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Toggle("Hide from screen sharing", isOn: $settings.settings.hideFromShare)
-            Text("Hides every Cuebar window — main, overlay, and settings — from recordings and calls. Self-test: open the overlay, run screencapture ~/Desktop/test.png, confirm Cuebar is missing from the photo.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Toggle("Hide main window while presenting", isOn: $settings.settings.hideMainWhilePresenting)
-            Text("The main window steps aside when the overlay opens and returns when it closes.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Section("Dimensions") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Width \(Int(settings.settings.overlayWidth))px").font(.callout)
-                    Slider(value: $settings.settings.overlayWidth, in: 280...maxWidth, step: 10) {
-                        Text("Width")
-                    }.labelsHidden()
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Height \(Int(settings.settings.overlayHeight))px").font(.callout)
-                    Slider(value: $settings.settings.overlayHeight, in: 100...900, step: 10) {
-                        Text("Height")
-                    }.labelsHidden()
-                }
+            SettingsSection(title: "Dimensions") {
+                LabeledSlider(title: "Width",
+                              display: "\(Int(settings.settings.overlayWidth)) px",
+                              value: $settings.settings.overlayWidth,
+                              range: 280...maxWidth, step: 10)
+                LabeledSlider(title: "Height",
+                              display: "\(Int(settings.settings.overlayHeight)) px",
+                              value: $settings.settings.overlayHeight,
+                              range: 100...900, step: 10)
                 if settings.settings.overlayMode == .notch {
-                    Text("The notch island caps at 640 wide so it keeps reading as hardware.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    SettingsCaption(text: "The notch island caps at 640 wide so it keeps reading as hardware.")
                 }
-                Text("Dragging the floating panel remembers its size and position.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                SettingsCaption(text: "Dragging the floating panel remembers its size and position.")
                 if settings.settings.floatingOriginX != nil {
                     Button("Forget saved position") {
                         settings.settings.floatingOriginX = nil
@@ -90,7 +82,10 @@ struct DisplayTab: View {
                     }
                 }
             }
-            Button("Reset All") { settings.reset() }
+            HStack {
+                Spacer()
+                Button("Reset All", role: .destructive) { settings.reset() }
+            }
         }
     }
 
