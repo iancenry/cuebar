@@ -179,7 +179,9 @@ struct LibraryFolder: View {
 }
 
 /// One script under its folder — single-line title, duration on the
-/// right, subtle highlight when selected.
+/// right, subtle highlight when selected. All row actions (move, export,
+/// delete) live behind one hover-revealed ⋯ menu and the context menu —
+/// never a stack of inline chevrons.
 struct ScriptRow: View {
     let doc: ScriptDocument
     let selected: Bool
@@ -190,6 +192,7 @@ struct ScriptRow: View {
     var onNewCategory: () -> Void
     var onExport: () -> Void
     var onDelete: () -> Void
+    @State private var hovered = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -205,24 +208,31 @@ struct ScriptRow: View {
                 .font(.caption2).monospacedDigit()
                 .foregroundStyle(CuePalette.muted)
                 .lineLimit(1)
-            Menu {
-                Section("Move to") {
-                    ForEach(categories, id: \.self) { name in
-                        Button(name) { onCategory(name) }
-                            .disabled(name == doc.category)
+            if hovered || selected {
+                Menu {
+                    Section("Move to") {
+                        ForEach(categories, id: \.self) { name in
+                            Button(name) { onCategory(name) }
+                                .disabled(name == doc.category)
+                        }
+                        Divider()
+                        Button("New category…") { onNewCategory() }
                     }
                     Divider()
-                    Button("New category…") { onNewCategory() }
+                    Button("Export…") { onExport() }
+                    Button("Delete", role: .destructive) { onDelete() }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.caption)
+                        .foregroundStyle(CuePalette.muted)
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
                 }
-            } label: {
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .foregroundStyle(CuePalette.muted)
-                    .padding(4)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .transition(.opacity)
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Move to category")
         }
         .padding(.leading, 14)
         .padding(.trailing, 6)
@@ -231,11 +241,20 @@ struct ScriptRow: View {
                     in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
         .onTapGesture { onPick() }
+        .onHover { hovered = $0 }
         .contextMenu {
-            Button("Export…") { onExport() }
+            Section("Move to") {
+                ForEach(categories, id: \.self) { name in
+                    Button(name) { onCategory(name) }
+                        .disabled(name == doc.category)
+                }
+                Button("New category…") { onNewCategory() }
+            }
             Divider()
+            Button("Export…") { onExport() }
             Button("Delete", role: .destructive) { onDelete() }
         }
+        .animation(.easeOut(duration: 0.12), value: hovered)
     }
 }
 

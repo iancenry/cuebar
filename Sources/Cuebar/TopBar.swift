@@ -18,13 +18,7 @@ struct TopBar: View {
             Text("Cuebar")
                 .font(.headline)
                 .padding(.leading, 76) // traffic lights with hidden title bar
-            Picker("Mode", selection: $mode) {
-                Text("Perform").tag(PerformMode.perform)
-                Text("Edit").tag(PerformMode.edit)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 168)
+            ModeSwitcher(mode: $mode)
             Spacer()
             StatusPill(isPlaying: engine.isPlaying, showElapsed: settings.settings.showElapsed)
             if settings.settings.guidance.usesVoice {
@@ -70,6 +64,41 @@ struct TopBar: View {
             .fixedSize()
         }
         .padding(.horizontal)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
+    }
+}
+
+/// Compact Perform/Edit switch — a branded two-segment capsule instead
+/// of the chunky native segmented control.
+struct ModeSwitcher: View {
+    @Binding var mode: PerformMode
+
+    var body: some View {
+        HStack(spacing: 2) {
+            segment(.perform, "Perform")
+            segment(.edit, "Edit")
+        }
+        .padding(3)
+        .glassSurface(in: Capsule())
+    }
+
+    private func segment(_ value: PerformMode, _ title: String) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.15)) { mode = value }
+        } label: {
+            Text(title)
+                .font(.callout.weight(mode == value ? .semibold : .regular))
+                .foregroundStyle(mode == value ? CuePalette.onHighlight : CuePalette.ink.opacity(0.65))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 4)
+                .background {
+                    if mode == value {
+                        Capsule().fill(CuePalette.peach)
+                    }
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(mode == value ? .isSelected : [])
     }
 }
