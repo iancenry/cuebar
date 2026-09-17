@@ -149,8 +149,11 @@ struct PlaybackDriver: View {
         // Smart pause: accumulate silence/speech and auto-pause/resume.
         // Armed only once the mic has actually heard speech — otherwise a
         // silent mic reads as "eternal silence" and instantly auto-pauses.
-        if guidance.usesVoice, settings.settings.smartPause != .off, engine.isPlaying,
-           voice.speechSeenSincePlay {
+        // Stays armed after the auto-pause (isPlaying goes false there):
+        // without it the auto-RESUME branch could never run again.
+        if guidance.usesVoice, settings.settings.smartPause != .off,
+           voice.speechSeenSincePlay,
+           engine.isPlaying || smartPauseDidAutoPause {
             tickSmartPause(speaking: speaking, delta: delta)
         }
 
@@ -158,19 +161,16 @@ struct PlaybackDriver: View {
         case .classic, .auto:
             engine.tick(delta)
 
-        case .voiceActivated:
-            // Speak-to-scroll — but until the mic has picked up its first
+        case .voiceActivated, .wordTracking:
+            // Speak-to-scroll — until the mic has picked up its first
             // speech this session, keep ticking so Play is never a no-op
             // (a silent or wrong-input mic used to freeze the prompter).
-            if speaking || !voice.speechSeenSincePlay {
+            // The matcher (wordTracking) corrects position on top of the
+            // ticking. The eased stop after pause() must always tick, or
+            // it never settles and Pause appears to do nothing.
+            if speaking || !voice.speechSeenSincePlay || engine.isStopping {
                 engine.tick(delta)
             }
-
-        case .wordTracking:
-            // Always tick WPM — voice matches layer on top via
-            // confirmReadThroughWord. This keeps the script moving
-            // even when the matcher hasn't fired yet.
-            engine.tick(delta)
         }
     }
 

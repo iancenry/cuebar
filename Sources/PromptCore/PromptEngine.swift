@@ -34,6 +34,9 @@ public final class PromptEngine {
     /// Off = constant char rate (legacy/robotic feel).
     public var naturalPacing: Bool = true
     public private(set) var isPlaying: Bool = false
+    /// True while easing out after `pause()` — ticks must keep coming or
+    /// the stop never settles (voice-gated tickers need this to check).
+    public var isStopping: Bool { stopping }
 
     private var cachedTotal: Int = 0
     private var wordStartOffsets: [Int] = []
