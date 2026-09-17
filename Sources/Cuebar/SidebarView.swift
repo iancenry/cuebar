@@ -1,9 +1,9 @@
 import SwiftUI
 import PromptCore
 
-/// Script manager sidebar: searchable cards plus a live category box.
-/// Tapping a category filters the list; the chevron on each row moves
-/// the script between categories.
+/// Script manager sidebar: search, category chips, and script cards.
+/// Categories live in a chip row under the search field so the script
+/// list gets the full height.
 struct SidebarView: View {
     @Bindable var scripts: ScriptStore
     var wordsPerSecond: Double
@@ -44,15 +44,6 @@ struct SidebarView: View {
         return counts
     }
 
-    private func icon(for category: String) -> String {
-        switch category.lowercased() {
-        case "presentations": return "display"
-        case "interviews": return "person"
-        case "personal": return "star"
-        default: return "tag"
-        }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -64,11 +55,25 @@ struct SidebarView: View {
                     .help("New script (Cmd-N)")
             }
             .padding([.horizontal, .top])
+            .padding(.bottom, 8)
             SearchField(text: $search)
                 .padding(.horizontal)
-                .padding(.vertical, 6)
+                .padding(.bottom, 10)
+            FlowLayout(spacing: 6, lineSpacing: 6) {
+                CategoryChip(name: "All", count: scripts.scripts.count,
+                             selected: filter == nil) { filter = nil }
+                ForEach(scripts.knownCategories, id: \.self) { name in
+                    CategoryChip(name: name, count: countsByCategory[name] ?? 0,
+                                 selected: filter == name) {
+                        filter = (filter == name) ? nil : name
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
+            Divider().opacity(0.35)
             ScrollView {
-                LazyVStack(spacing: 8) {
+                LazyVStack(spacing: 6) {
                     ForEach(visible) { doc in
                         ScriptCard(
                             doc: doc,
@@ -84,36 +89,24 @@ struct SidebarView: View {
                                 showingNewCategory = true
                             }
                         )
+                        .contentShape(Rectangle())
                         .onTapGesture { onPick(doc.id) }
                         .contextMenu {
                             Button("Delete", role: .destructive) { scripts.delete(doc.id) }
                         }
                     }
-                }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
-            }
-            Divider().opacity(0.4)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("CATEGORIES")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(CuePalette.muted)
-                    .padding(.horizontal, 4)
-                CategoryRow(icon: "folder", name: "All Scripts",
-                            count: scripts.scripts.count,
-                            selected: filter == nil) {
-                    filter = nil
-                }
-                ForEach(scripts.knownCategories, id: \.self) { name in
-                    CategoryRow(icon: icon(for: name), name: name,
-                                count: countsByCategory[name] ?? 0,
-                                selected: filter == name) {
-                        filter = (filter == name) ? nil : name
+                    if visible.isEmpty {
+                        Text(search.isEmpty ? "No scripts here yet" : "No matches")
+                            .font(.caption)
+                            .foregroundStyle(CuePalette.muted)
+                            .padding(.top, 24)
+                            .frame(maxWidth: .infinity)
                     }
                 }
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 8)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
         }
         .frame(minWidth: 200, idealWidth: 250, maxWidth: 300)
         .alert("New category", isPresented: $showingNewCategory) {
@@ -144,51 +137,56 @@ struct ScriptCard: View {
     var onNewCategory: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(selected ? CuePalette.peach : CuePalette.muted.opacity(0.5))
-                    .frame(width: 6, height: 6)
+        HStack(alignment: .center, spacing: 10) {
+            Capsule()
+                .fill(selected ? CuePalette.peach : CuePalette.muted.opacity(0.25))
+                .frame(width: 3, height: 34)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(doc.title)
                     .font(.body.weight(selected ? .semibold : .regular))
                     .lineLimit(1)
-                Spacer()
-                Menu {
-                    Section("Move to") {
-                        ForEach(categories, id: \.self) { name in
-                            Button(name) { onCategory(name) }
-                                .disabled(name == doc.category)
-                        }
-                        Divider()
-                        Button("New category…") { onNewCategory() }
-                    }
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(CuePalette.muted)
-                        .padding(.leading, 4)
-                }
-                .menuStyle(.borderlessButton)
-                .help("Move to category")
+                Text("\(words) words · \(duration)")
+                    .font(.caption)
+                    .foregroundStyle(CuePalette.muted)
+                    .monospacedDigit()
+                    .lineLimit(1)
             }
-            Text("\(words) words · \(duration)")
-                .font(.caption)
-                .foregroundStyle(CuePalette.muted)
-                .monospacedDigit()
+            Spacer(minLength: 4)
+            Menu {
+                Section("Move to") {
+                    ForEach(categories, id: \.self) { name in
+                        Button(name) { onCategory(name) }
+                            .disabled(name == doc.category)
+                    }
+                    Divider()
+                    Button("New category…") { onNewCategory() }
+                }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(CuePalette.muted)
+                    .padding(6)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Move to category")
         }
-        .padding(10)
-        .background(CuePalette.card, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            selected ? CuePalette.card : Color.clear,
+            in: RoundedRectangle(cornerRadius: 10)
+        )
         .overlay {
             if selected {
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(CuePalette.peach.opacity(0.6), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(CuePalette.peach.opacity(0.35), lineWidth: 1)
             }
         }
     }
 }
 
-struct CategoryRow: View {
-    let icon: String
+struct CategoryChip: View {
     let name: String
     let count: Int
     let selected: Bool
@@ -196,21 +194,17 @@ struct CategoryRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .frame(width: 16)
+            HStack(spacing: 5) {
                 Text(name)
-                    .lineLimit(1)
-                Spacer()
+                    .font(.caption.weight(selected ? .semibold : .regular))
                 Text("\(count)")
-                    .monospacedDigit()
+                    .font(.caption2).monospacedDigit()
+                    .foregroundStyle(selected ? CuePalette.onHighlight.opacity(0.75) : CuePalette.muted)
             }
-            .font(.callout)
-            .foregroundStyle(selected ? CuePalette.ink : CuePalette.muted)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(selected ? CuePalette.card : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(selected ? CuePalette.peach : CuePalette.card, in: Capsule())
+            .foregroundStyle(selected ? CuePalette.onHighlight : CuePalette.ink)
         }
         .buttonStyle(.plain)
     }
@@ -220,8 +214,10 @@ struct SearchField: View {
     @Binding var text: String
 
     var body: some View {
-        HStack {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             TextField("Search", text: $text).textFieldStyle(.plain)
             if !text.isEmpty {
                 Button(action: { text = "" }) { Image(systemName: "xmark.circle.fill") }
@@ -229,7 +225,8 @@ struct SearchField: View {
                     .accessibilityLabel("Clear search")
             }
         }
-        .padding(8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .background(CuePalette.card, in: RoundedRectangle(cornerRadius: 10))
     }
 }

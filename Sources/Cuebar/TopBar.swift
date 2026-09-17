@@ -23,6 +23,7 @@ struct TopBar: View {
                 Text("Edit").tag(PerformMode.edit)
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
             .frame(width: 168)
             Spacer()
             StatusPill(isPlaying: engine.isPlaying, showElapsed: settings.settings.showElapsed)

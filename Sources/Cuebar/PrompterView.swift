@@ -54,28 +54,47 @@ struct PrompterBody: View {
             }
             ScrollViewReader { proxy in
                 ZStack(alignment: .center) {
-                    ScrollView {
-                    if tokens.isEmpty {
-                        ContentUnavailableView("No script", systemImage: "text.alignleft",
-                            description: Text("Pick a script on the left to start prompting."))
-                            .padding(.top, 80)
-                    } else {
-                        TokenPageView(engine: engine, tokens: tokens, page: visiblePage,
-                                      pageSize: pageSize, settings: settings.settings)
-                        .padding(.horizontal, 32)
-                        .padding(.vertical, 24)
-                        .frame(maxWidth: settings.settings.readingWidth ?? .infinity,
-                               alignment: settings.settings.textAlignment == .center ? .center : .leading)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                    GeometryReader { geo in
+                        ScrollView {
+                            Group {
+                                if tokens.isEmpty {
+                                    ContentUnavailableView("No script", systemImage: "text.alignleft",
+                                        description: Text("Pick a script on the left to start prompting."))
+                                        .padding(.top, 80)
+                                } else {
+                                    TokenPageView(engine: engine, tokens: tokens, page: visiblePage,
+                                                  pageSize: pageSize, settings: settings.settings)
+                                    .padding(.horizontal, 32)
+                                    .padding(.vertical, 24)
+                                    .frame(maxWidth: settings.settings.readingWidth ?? .infinity,
+                                           alignment: settings.settings.textAlignment == .center ? .center : .leading)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                }
+                            }
+                            // Short pages sit centered instead of hugging the
+                            // top with a wall of empty space below.
+                            .frame(minHeight: geo.size.height, alignment: .center)
+                        }
                     }
-                }
-                if settings.settings.showCenterLine {
-                    Rectangle()
-                        .fill(CuePalette.peach.opacity(0.25))
-                        .frame(height: 1)
-                        .padding(.horizontal, 24)
-                        .allowsHitTesting(false)
-                }
+                    if settings.settings.showCenterLine {
+                        Rectangle()
+                            .fill(CuePalette.peach.opacity(0.25))
+                            .frame(height: 1)
+                            .padding(.horizontal, 24)
+                            .allowsHitTesting(false)
+                    }
+                    // Teleprompter fades: text glides under the chrome at
+                    // both edges instead of hard-clipping.
+                    VStack {
+                        LinearGradient(colors: [surface, surface.opacity(0)],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: 28)
+                        Spacer()
+                        LinearGradient(colors: [surface.opacity(0), surface],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: 28)
+                    }
+                    .allowsHitTesting(false)
                 }
                 .onChange(of: engine.currentWordIndex) { _, new in
                     guard follow, let idx = new else { return }

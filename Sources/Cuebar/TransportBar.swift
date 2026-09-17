@@ -20,10 +20,9 @@ struct TransportBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ProgressView(value: engine.progress)
-                .progressViewStyle(.linear)
-                .tint(CuePalette.peach)
+            PlaybackProgress(progress: engine.progress)
                 .padding(.horizontal)
+                .padding(.top, 10)
                 .accessibilityLabel("Progress")
             HStack {
                 HStack(spacing: 4) {
@@ -144,5 +143,22 @@ struct SkipButton: View {
             .frame(width: 52, height: 52)
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Rounded progress capsule with a quiet track, tinted peach.
+struct PlaybackProgress: View {
+    let progress: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(CuePalette.muted.opacity(0.25))
+                Capsule()
+                    .fill(CuePalette.peach)
+                    .frame(width: max(0, geo.size.width * min(1, max(0, progress))))
+            }
+        }
+        .frame(height: 5)
     }
 }
