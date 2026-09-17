@@ -5,7 +5,7 @@ struct DisplayTab: View {
     @Bindable var settings: SettingsStore
 
     var body: some View {
-        Form {
+        SettingsTab {
             Section("Preview") {
                 ReadingPreview(settings: settings.settings)
                     .padding(.vertical, 4)
@@ -83,7 +83,6 @@ struct DisplayTab: View {
             }
             Button("Reset All") { settings.reset() }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private var maxWidth: Double {

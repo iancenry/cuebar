@@ -5,7 +5,7 @@ struct VoiceTab: View {
     @Bindable var settings: SettingsStore
 
     var body: some View {
-        Form {
+        SettingsTab {
             Picker("Mode", selection: $settings.settings.guidance) {
                 Text("Word Tracking").tag(CueSettings.GuidanceMode.wordTracking)
                 Text("Classic").tag(CueSettings.GuidanceMode.classic)
@@ -32,7 +32,6 @@ struct VoiceTab: View {
             Text("Automatic uses the fully offline on-device model on macOS 26+, falling back to legacy recognition otherwise. Legacy may send audio to Apple.")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private var guidanceBlurb: String {

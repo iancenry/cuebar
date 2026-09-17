@@ -8,7 +8,7 @@ public struct CueSettings: Codable, Equatable, Sendable {
     }
     public enum FontFamily: String, Codable, Sendable, CaseIterable {
         case sans, serif, mono, dyslexia
-}
+    }
     public enum TextSize: String, Codable, Sendable, CaseIterable {
         case xs, sm, lg, xl
         public var points: Double {

@@ -5,7 +5,7 @@ struct TypographyTab: View {
     @Bindable var settings: SettingsStore
 
     var body: some View {
-        Form {
+        SettingsTab {
             Section("Preview") {
                 ReadingPreview(settings: settings.settings)
                     .padding(.vertical, 4)
@@ -94,6 +94,5 @@ struct TypographyTab: View {
                 .pickerStyle(.segmented)
             }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
     }
 }

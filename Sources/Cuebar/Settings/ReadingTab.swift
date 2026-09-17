@@ -5,7 +5,7 @@ struct ReadingTab: View {
     @Bindable var settings: SettingsStore
 
     var body: some View {
-        Form {
+        SettingsTab {
             Section("Preview") {
                 ReadingPreview(settings: settings.settings)
                     .padding(.vertical, 4)
@@ -122,6 +122,5 @@ struct ReadingTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-        .frame(maxHeight: .infinity, alignment: .top)
     }
 }

@@ -16,7 +16,6 @@ struct SettingsView: View {
             VoiceTab(settings: settings)
                 .tabItem { Label("Voice", systemImage: "waveform") }
         }
-        .padding()
         .tint(CuePalette.peach)
     }
 }
