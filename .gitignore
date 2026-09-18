@@ -7,3 +7,4 @@ DerivedData/
 build/
 *.moved-aside/
 xcuserdata/
+dist/
