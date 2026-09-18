@@ -53,7 +53,7 @@ struct VoiceTab: View {
         case .voiceActivated:
             return "Scrolls while you speak, pauses in silence. Follows your speed but not your words."
         case .wordTracking:
-            return "Follows what you're actually saying — tolerates skipped words, repeats, and fillers. Holds still when you go quiet; scrolls at WPM until the mic hears you."
+            return "Follows what you're actually saying — tolerates skipped words, repeats, and fillers. Holds still whenever you're quiet; only scrolls on its own for a couple of seconds right after Play."
         }
     }
 }

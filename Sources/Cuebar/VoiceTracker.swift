@@ -35,6 +35,11 @@ final class VoiceTracker {
     /// Zero in the mic pill's tooltip means recognition isn't delivering,
     /// regardless of what the level meter says.
     private(set) var transcriptCount = 0
+    /// Last time the VAD detected speech. The matcher only fires while
+    /// speech is recent — recognizers keep draining buffered audio for a
+    /// few seconds after you stop talking, and matching during that drain
+    /// marches the highlight through repeated phrases on its own.
+    private(set) var lastSpeechDate: Date?
     /// Recent input levels (~6 s at the 8 Hz ticker) for the waveform.
     /// Appends flat zeros when idle so the wave settles instead of freezing.
     private(set) var levelHistory: [Double] = Array(repeating: 0, count: 48)
@@ -94,6 +99,7 @@ final class VoiceTracker {
         audioLevel = 0
         isSpeaking = false
         speechSeenSincePlay = false
+        lastSpeechDate = nil
         transcriptCount = 0
         if state == .listening || state == .requesting {
             state = .stopped
@@ -123,7 +129,10 @@ final class VoiceTracker {
         driver.poll()
         audioLevel = driver.audioLevel
         isSpeaking = driver.isSpeaking
-        if isSpeaking { speechSeenSincePlay = true }
+        if isSpeaking {
+            speechSeenSincePlay = true
+            lastSpeechDate = Date()
+        }
         pushLevel(audioLevel)
     }
 
@@ -162,6 +171,12 @@ extension VoiceTracker: TranscriptionEvents {
         lastTranscript = text
         transcriptCount += 1
         guard let engine, !text.isEmpty else { return }
+        // Only match while speech is recent. After you stop talking the
+        // recognizer drains its buffer for a few seconds; matching those
+        // stale results would keep stepping the highlight forward.
+        let recentSpeech = isSpeaking
+            || (lastSpeechDate.map { Date().timeIntervalSince($0) < 1.5 } ?? false)
+        guard recentSpeech else { return }
         // Match only the tail. Drivers accumulate the whole session's
         // text and re-fire on every partial result — rescanning the full
         // transcript each time is O(session²) for nothing, since the

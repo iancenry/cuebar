@@ -28,6 +28,12 @@ struct PlaybackDriver: View {
     /// True when smart pause auto-paused playback; we only auto-resume
     /// if we were the ones who paused.
     @State private var smartPauseDidAutoPause: Bool = false
+    /// The WPM fallback for voice-gated modes runs only during a short
+    /// grace window after Play with a *live* mic — never forever, and
+    /// never when the mic is off (that made the script cruise in
+    /// silence).
+    @State private var fallbackDeadline: Date?
+    private static let fallbackGrace: TimeInterval = 3
 
     var body: some View {
         Color.clear
@@ -47,6 +53,9 @@ struct PlaybackDriver: View {
                 if playing {
                     mode = .perform
                     voice.resetSpeechSeen()
+                    fallbackDeadline = Date().addingTimeInterval(Self.fallbackGrace)
+                } else {
+                    fallbackDeadline = nil
                 }
                 // Reset smart pause state when playback starts/stops.
                 if playing {
@@ -164,17 +173,22 @@ struct PlaybackDriver: View {
             engine.tick(delta)
 
         case .voiceActivated, .wordTracking:
-            // Speak-to-scroll — until the mic has picked up its first
-            // speech this session, keep ticking so Play is never a no-op
-            // (a silent or wrong-input mic used to freeze the prompter).
-            // The matcher (wordTracking) corrects position on top of the
-            // ticking. The eased stop after pause() and the timed-cue
-            // countdown must always tick, or neither ever settles.
-            if speaking || !voice.speechSeenSincePlay
-                || engine.isStopping || engine.isHolding {
+            // Speak-to-scroll. The WPM fallback is a grace, not a default
+            // engine: live mic + first seconds after Play only. Off-mic
+            // or long silence means the script holds still.
+            if speaking || micFallbackActive || engine.isStopping || engine.isHolding {
                 engine.tick(delta)
             }
         }
+    }
+
+    /// True only while Play just started, the mic is actually alive, and
+    /// it hasn't heard speech yet.
+    private var micFallbackActive: Bool {
+        guard let deadline = fallbackDeadline else { return false }
+        return Date() < deadline
+            && (voice.state == .listening || voice.state == .requesting)
+            && !voice.speechSeenSincePlay
     }
 
     // MARK: - Smart Pause
