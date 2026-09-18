@@ -61,6 +61,9 @@ struct EditView: View {
                     Text("\(cueCount) cues")
                 }
                 Spacer()
+                Text("⌘K to insert cues")
+                    .foregroundStyle(CuePalette.muted)
+                Text("·")
                 Text("Option-Space to perform")
                     .foregroundStyle(CuePalette.muted)
             }

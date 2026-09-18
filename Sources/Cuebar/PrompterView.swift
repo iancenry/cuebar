@@ -322,20 +322,7 @@ struct CueBadge: View {
     }
 
     private var icon: String? {
-        switch ScriptCue.interpret(text).kind {
-        case .pause: return "pause.fill"
-        case .wait: return "hourglass"
-        case .hold: return "hand.raised.fill"
-        case .breath: return "wind"
-        case .stop: return "stop.fill"
-        case .smile: return "face.smiling"
-        case .look: return "eye"
-        case .emphasis: return "exclamationmark"
-        case .demo: return "play.rectangle"
-        case .drink: return "drop"
-        case .slide: return "rectangle.on.rectangle"
-        case .other: return nil
-        }
+        ScriptCue.iconName(for: text)
     }
 
     var body: some View {

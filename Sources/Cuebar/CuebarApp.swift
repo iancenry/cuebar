@@ -1,5 +1,6 @@
 import SwiftUI
 import PromptCore
+import AppKit
 
 @main
 struct CuebarApp: App {
@@ -10,6 +11,7 @@ struct CuebarApp: App {
     @State private var tokens: [ScriptToken] = []
     @State private var overlay = OverlayController()
     @State private var voice = VoiceTracker()
+    @State private var showingCuePalette = false
 
     init() {
         FontLoader.register()
@@ -24,6 +26,12 @@ struct CuebarApp: App {
                 // dark surfaces, so the app never follows Light Mode
                 // (where paper-white inks wash out on white chrome).
                 .preferredColorScheme(.dark)
+                .sheet(isPresented: $showingCuePalette) {
+                    CuePaletteView { inner in
+                        insertCue(inner)
+                        showingCuePalette = false
+                    }
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -49,6 +57,8 @@ struct CuebarApp: App {
                     .keyboardShortcut("o", modifiers: [.command])
                 Button("Export Script…") { exportSelected() }
                     .keyboardShortcut("s", modifiers: [.command])
+                Button("Insert Cue…") { showingCuePalette = true }
+                    .keyboardShortcut("k", modifiers: [.command])
             }
         }
         Settings {
@@ -90,5 +100,24 @@ struct CuebarApp: App {
     private func exportSelected() {
         guard let doc = scripts.selected else { return }
         ScriptIO.export(doc)
+    }
+
+    /// ⌘K: drop a `[cue]` at the editor's caret, or append when nothing
+    /// is focused. The editor's draft is the source of truth, so the
+    /// insertion flows through the normal commit path.
+    private func insertCue(_ inner: String) {
+        let snippet = "[\(inner)]"
+        var body = draftBody
+        if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
+            let ns = body as NSString
+            let location = min(editor.selectedRange().location, ns.length)
+            let length = min(editor.selectedRange().length, ns.length - location)
+            body = ns.replacingCharacters(in: NSRange(location: location, length: length),
+                                          with: snippet)
+        } else {
+            if !body.isEmpty { body += " " }
+            body += snippet
+        }
+        draftBody = body
     }
 }
