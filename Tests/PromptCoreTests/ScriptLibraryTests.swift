@@ -32,17 +32,89 @@ import PromptCore
         #expect(store.scripts.isEmpty)
     }
 
-    @Test @MainActor func categoriesRegisterAndDerive() {
-        let store = ScriptStore(inMemory: [])
-        #expect(store.knownCategories.isEmpty)
-        let doc = store.add(title: "Talk")
-        store.setCategory("Interviews", for: doc.id)
-        #expect(store.knownCategories == ["Interviews"])
-        let seeded = ScriptStore(inMemory: [
-            ScriptDocument(title: "A", body: "hi", category: "Presentations"),
-            ScriptDocument(title: "B", body: "yo", category: "Presentations"),
+    @Test @MainActor func foldersNestAndFileScripts() {
+        let store = ScriptStore(inMemory: [], folders: [
+            ScriptFolder(name: "Presentations"),
         ])
-        #expect(seeded.knownCategories == ["Presentations"])
+        let top = store.folders[0]
+        #expect(store.childFolders(of: nil).map(\.name) == ["Presentations"])
+
+        let sub = store.createFolder(name: "Product Demo", parent: top.id)
+        let deeper = store.createFolder(name: "Slides", parent: sub.id)
+        #expect(store.folderPath(sub.id) == "Presentations / Product Demo")
+        #expect(store.folderPath(deeper.id) == "Presentations / Product Demo / Slides")
+        // Depth-first draw order, parents before children.
+        #expect(store.folderRows().map(\.folder.name) == ["Presentations", "Product Demo", "Slides"])
+
+        let doc = store.add(title: "Talk")
+        store.moveScript(doc.id, to: sub.id)
+        #expect(store.scripts(inFolder: top.id, includeNested: true).map(\.id) == [doc.id])
+        #expect(store.scripts(inFolder: sub.id, includeNested: false).map(\.id) == [doc.id])
+        #expect(store.scriptCount(in: top.id) == 1)
+    }
+
+    @Test @MainActor func deletingAFolderRefilesItsContentsToTheParent() {
+        let store = ScriptStore(inMemory: [], folders: [ScriptFolder(name: "Top")])
+        let top = store.folders[0]
+        let sub = store.createFolder(name: "Sub", parent: top.id)
+        let doc = store.add(title: "Talk")
+        store.moveScript(doc.id, to: sub.id)
+
+        store.deleteFolder(sub.id)
+        #expect(store.folders.contains { $0.name == "Sub" } == false)
+        // Deleted, not lost: the script lands in the parent, never Unfiled.
+        #expect(store.scripts.first?.folderID == top.id)
+    }
+
+    @Test @MainActor func tagsAreFreeTextAndDeduplicated() {
+        let store = ScriptStore(inMemory: [])
+        let doc = store.add(title: "Talk")
+        store.addTag("#Keynote", to: doc.id)
+        store.addTag("keynote", to: doc.id)          // same tag, different case
+        store.addTag("  ", to: doc.id)               // nothing to add
+        #expect(store.scripts.first?.tags == ["Keynote"])
+        #expect(store.allTags == ["Keynote"])
+        #expect(store.scripts(tagged: "KEYNOTE").count == 1)
+        store.removeTag("keynote", from: doc.id)
+        #expect(store.allTags.isEmpty)
+    }
+
+    @Test @MainActor func favoritesRecentAndArchive() {
+        let store = ScriptStore(inMemory: [])
+        let a = store.add(title: "A")
+        let b = store.add(title: "B")
+        store.toggleFavorite(a.id)
+        #expect(store.favorites.map(\.id) == [a.id])
+        // Both were just created, so both are recent, and `b` was created
+        // second, so it leads.
+        #expect(store.recentScripts.first?.id == b.id)
+        // Editing an old script must not promote it: recency is about being
+        // opened, not about being written.
+        store.updateBody(a.id, body: "x")
+        #expect(store.recentScripts.first?.id == b.id)
+        store.markOpened(a.id)
+        #expect(store.recentScripts.first?.id == a.id)
+        store.setArchived(true, for: a.id)
+        #expect(store.favorites.isEmpty)             // archived leaves the library
+        #expect(store.archivedScripts.map(\.id) == [a.id])
+    }
+
+    @Test @MainActor func duplicateKeepsFilingAndTagsButNotFavoritism() throws {
+        let store = ScriptStore(inMemory: [], folders: [ScriptFolder(name: "F")])
+        let folder = store.folders[0]
+        let source = store.add(title: "Talk")
+        store.moveScript(source.id, to: folder.id)
+        store.addTag("draft", to: source.id)
+        store.toggleFavorite(source.id)
+
+        let copy = try #require(store.duplicate(source.id))
+        #expect(copy.title == "Talk copy")
+        #expect(copy.folderID == folder.id)
+        #expect(copy.tags == ["draft"])
+        #expect(copy.isFavorite == false)
+        // A second duplicate must not collide with the first copy's title.
+        let again = try #require(store.duplicate(source.id))
+        #expect(again.title == "Talk copy 2")
     }
 }
 
@@ -135,13 +207,28 @@ import PromptCore
         #expect(s.autoNextScript == true)
     }
 
-    @Test func legacyDocsDecodeWithDefaultCategory() throws {
+    @Test func legacyDocsDecodeWithTheirCategoryHeldForMigration() throws {
         let json = """
         {"id":"\(UUID().uuidString)","title":"Old","body":"hi there","updatedAt":0}
         """.data(using: .utf8)!
         let doc = try JSONDecoder().decode(ScriptDocument.self, from: json)
-        #expect(doc.category == "Scripts")
         #expect(doc.wordCount == 2)
+        #expect(doc.folderID == nil)
+        #expect(doc.legacyCategory == nil)
+    }
+
+    @Test func anOldFileWithCategoriesSurvivesTheRoundTrip() throws {
+        // What a pre-folder scripts.json actually contained.
+        let json = """
+        {"id":"\(UUID().uuidString)","title":"Old","body":"hi there","updatedAt":0,"category":"Interviews"}
+        """.data(using: .utf8)!
+        let doc = try JSONDecoder().decode(ScriptDocument.self, from: json)
+        #expect(doc.legacyCategory == "Interviews")
+        // And the category is never written back, so a re-encode cannot
+        // resurrect a second answer to where the script lives.
+        let out = try JSONEncoder().encode(doc)
+        let text = String(decoding: out, as: UTF8.self)
+        #expect(text.contains("\"category\"") == false)
     }
 }
 

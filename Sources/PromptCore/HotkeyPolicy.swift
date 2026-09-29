@@ -102,12 +102,20 @@ public enum HotkeyPolicy: Sendable {
         if context.source == .global, context.isFrontmost { return .forward }
 
         if !context.hasWindow, !action.isAppLevel { return .forward }
-        // In the editor, only the stage commands (the ones that drive the
-        // display) answer a ⌥-chord; every other chord keeps its macOS
-        // meaning so ⌘K/⌘F/⌘R still edit text.
-        if context.isEditing, action.group != .stage { return .forward }
-        if context.isEditing, chord.modifiers.contains(.command) || chord.modifiers.contains(.control) {
-            return .forward
+        // In the editor, only the commands that make sense there answer at
+        // all — see `isEditorSafe`. The blanket "⌘ and ⌃ belong to macOS"
+        // rule that used to sit here was what stopped ⌘K from working in
+        // the editor: it fired for every ⌘-chord, including the cue
+        // palette, which the editor's own footer promised. ⌘-chords are now
+        // only respected for the commands that aren't editor-safe.
+        if context.isEditing {
+            guard action.isEditorSafe else { return .forward }
+            // ⌘ and ⌃ still belong to macOS in a text field, except for
+            // the chord that has no macOS meaning and writes text.
+            if chord.modifiers.contains(.command) || chord.modifiers.contains(.control),
+               !action.isCommandSafeInEditor {
+                return .forward
+            }
         }
         // Native shortcuts never repeat, and neither should ours — or holding
         // a rebound key machine-guns its command.

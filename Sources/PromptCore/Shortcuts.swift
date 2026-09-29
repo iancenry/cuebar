@@ -182,6 +182,36 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     /// palette) — they keep working when the main window is closed.
     public var isAppLevel: Bool { group == .script }
 
+    /// Commands that still answer while the editor has focus.
+    ///
+    /// Stage commands drive the display. `insertCue` belongs here because a
+    /// cue is *text*: refusing ⌘K in the editor blocked the one command
+    /// that writes into the document being written, while the editor's own
+    /// footer advertised it. `playPause` is here because that footer
+    /// advertises Option-Space too — and it promotes to Perform so the
+    /// result is visible. The cost is that Option-Space stops typing a
+    /// non-breaking space in the editor, which is a trade worth naming.
+    ///
+    /// Everything else stays out. The speed, jump and cue-navigation
+    /// chords are real text-navigation bindings (⌘↑ to the document
+    /// start, ⌥→ to end of line), and the document commands would swap
+    /// the file out from under the caret.
+    public var isEditorSafe: Bool {
+        switch self {
+        case .playPause, .insertCue,
+             .toggleFollow, .toggleMicrophone, .toggleOverlay:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The one ⌘-chord that answers in the editor. ⌘ and ⌃ belong to macOS
+    /// in a text field — ⌘F is Find, ⌘↑ is the document start — so they
+    /// are respected in the editor, with one exception: ⌘K has no macOS
+    /// meaning and a cue is text.
+    public var isCommandSafeInEditor: Bool { self == .insertCue }
+
     /// Defaults are the chords the app shipped with. They must stay unique
     /// (locked by a test) — otherwise one key silently drives two commands.
     public var defaultChord: KeyChord {

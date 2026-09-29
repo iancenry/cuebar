@@ -1,7 +1,7 @@
 import SwiftUI
 import PromptCore
 
-/// Create surface: title, category, and a markdown-like editor.
+/// Create surface: title, where it lives, and a markdown-like editor.
 /// No transport controls here — Option-Space performs.
 struct EditView: View {
     let doc: ScriptDocument
@@ -9,14 +9,11 @@ struct EditView: View {
     /// than from re-scanning the body twice per keystroke.
     let index: ScriptIndex
     var wordsPerSecond: Double
-    var categories: [String]
+    var folderPath: String
     var onRename: (String) -> Void
-    var onCategory: (String) -> Void
     @Binding var draftBody: String
     var onBodyCommitted: (String) -> Void
     @State private var pendingSave: Task<Void, Never>?
-    @State private var showingNewCategory = false
-    @State private var newCategoryName = ""
 
     private var cueCount: Int { index.cues.filter { $0 != nil }.count }
 
@@ -29,18 +26,13 @@ struct EditView: View {
             .textFieldStyle(.plain)
             .font(.largeTitle.bold())
             .foregroundStyle(CuePalette.ink)
-            Menu {
-                ForEach(categories, id: \.self) { name in
-                    Button(name) { onCategory(name) }
-                }
-                Divider()
-                Button("New category…") { showingNewCategory = true }
-            } label: {
-                Label(doc.category, systemImage: "tag")
-                    .font(.callout)
-                    .foregroundStyle(CuePalette.muted)
-            }
-            .menuStyle(.borderlessButton)
+            // Where it lives, read-only. Moving is a library action, and it
+            // belongs in the rail where the tree is — a menu of flat names
+            // can't express nesting, which is the whole point of folders.
+            Label(folderPath, systemImage: "folder")
+                .font(.callout)
+                .foregroundStyle(CuePalette.muted)
+                .help("Move this script from the sidebar")
             TextEditor(text: $draftBody)
                 .font(.system(size: 16))
                 .foregroundStyle(CuePalette.ink)
@@ -83,14 +75,6 @@ struct EditView: View {
             .monospacedDigit()
         }
         .padding(24)
-        .alert("New category", isPresented: $showingNewCategory) {
-            TextField("Name", text: $newCategoryName)
-            Button("Add") {
-                let name = newCategoryName.trimmingCharacters(in: .whitespaces)
-                if !name.isEmpty { onCategory(name) }
-                newCategoryName = ""
-            }
-            Button("Cancel", role: .cancel) { newCategoryName = "" }
-        }
+
     }
 }

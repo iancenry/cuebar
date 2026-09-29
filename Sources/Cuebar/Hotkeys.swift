@@ -120,6 +120,14 @@ final class HotkeyCenter {
         let engine = context.engine
         switch action {
         case .playPause:
+            // Asked for from the editor, Option-Space starts the prompter —
+            // and the editor's own footer says so. Toggling the engine
+            // while the editor is on screen would move a highlight nobody
+            // can see, so take the reader to it instead. Option-Space no
+            // longer types a non-breaking space here, which is the trade.
+            if context.mode.wrappedValue == .edit {
+                context.mode.wrappedValue = .perform
+            }
             engine.toggle()
         case .speedUp:
             Self.adjustWPM(by: 10, settings: settings, engine: engine)

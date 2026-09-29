@@ -46,6 +46,11 @@ struct ContentView: View {
             // itself is an opaque card, so the writing never sits on it.
             editor
                 .background(EditorBackdrop())
+                // Clear the floating chrome. The mode switcher is an
+                // overlay on the column, and the editor's own 24pt was
+                // measured from the top of the view — so a large title
+                // landed underneath the pill and collided with it.
+                .padding(.top, CuePalette.chromeRowHeight)
         }
     }
 
@@ -71,7 +76,6 @@ struct ContentView: View {
                         onPick: pick, onNew: {
                             pick(scripts.add().id)
                         },
-                        onCategory: { setCategory($0, for: $1) },
                         onExport: { ScriptIO.export($0) })
                 .background(SidebarBackdrop())
                 .background {
@@ -170,9 +174,8 @@ struct ContentView: View {
             if let doc = scripts.selected {
                 EditView(doc: doc, index: index,
                          wordsPerSecond: engine.wordsPerSecond,
-                         categories: scripts.knownCategories,
+                         folderPath: scripts.folderName(doc.folderID),
                          onRename: { scripts.rename(doc.id, title: $0) },
-                         onCategory: { setCategory($0, for: doc.id) },
                          draftBody: $draftBody,
                          onBodyCommitted: { commit($0, for: doc.id) })
             } else {
@@ -205,10 +208,6 @@ struct ContentView: View {
     /// the load — loading here too would parse and index the script twice.
     private func pick(_ id: UUID) {
         scripts.select(id)
-    }
-
-    private func setCategory(_ name: String, for id: UUID) {
-        scripts.setCategory(name, for: id)
     }
 
     private func doc(matching id: UUID) -> ScriptDocument? {

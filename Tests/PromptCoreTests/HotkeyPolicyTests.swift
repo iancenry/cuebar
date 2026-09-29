@@ -65,8 +65,17 @@ import Foundation
                                     context: context) == .consume(.toggleMicrophone))
         #expect(HotkeyPolicy.decide(chord(.toggleFullscreen), isRepeat: false,
                                     context: context) == .forward)   // ⌘F is Find
-        // Transport and script chords are released in both shapes.
-        for action in [ShortcutAction.playPause, .restart, .nextCue, .insertCue, .newScript] {
+        // ⌘K has no macOS meaning and a cue is text, so the palette
+        // answers here — the editor's own footer advertises it.
+        #expect(HotkeyPolicy.decide(chord(.insertCue), isRepeat: false,
+                                    context: context) == .consume(.insertCue))
+        // So does play/pause, for the same reason: the footer advertises
+        // Option-Space, and the handler promotes to Perform.
+        #expect(HotkeyPolicy.decide(chord(.playPause), isRepeat: false,
+                                    context: context) == .consume(.playPause))
+        // The rest are released: text-navigation chords and the document
+        // commands that would swap the file out from under the caret.
+        for action in [ShortcutAction.restart, .nextCue, .speedUp, .jumpForward, .newScript] {
             #expect(HotkeyPolicy.decide(chord(action), isRepeat: false,
                                         context: context) == .forward,
                     "editor should keep \(action.rawValue)")
@@ -168,12 +177,20 @@ import Foundation
                                          hasWindow: true, isEditing: false)
         let fresh = HotkeyPolicy.context(source: .local, map: .default, recording: nil,
                                          hasWindow: true, isEditing: true)
-        let playPause = ShortcutMap.default.chord(for: .playPause)
+        // ⌘↑ is a real text-navigation binding, so it is the chord that
+        // shows the difference: the flag is what decides whether we eat it.
+        let speedUp = ShortcutMap.default.chord(for: .speedUp)
         // Stale: the key is ours and gets eaten, but `perform` is inert in the
         // editor — a swallowed keystroke that does nothing.
+        #expect(HotkeyPolicy.decide(speedUp, isRepeat: false, context: stale) == .consume(.speedUp))
+        // Fresh: the editor keeps the key and moves the caret with it.
+        #expect(HotkeyPolicy.decide(speedUp, isRepeat: false, context: fresh) == .forward)
+        // Play/pause is editor-safe now, so both flags consume it — the
+        // guard against this class of bug is `HotkeyWiring` reinstalling
+        // the monitor on a mode change, not the policy.
+        let playPause = ShortcutMap.default.chord(for: .playPause)
         #expect(HotkeyPolicy.decide(playPause, isRepeat: false, context: stale) == .consume(.playPause))
-        // Fresh: the editor keeps the key and types with it.
-        #expect(HotkeyPolicy.decide(playPause, isRepeat: false, context: fresh) == .forward)
+        #expect(HotkeyPolicy.decide(playPause, isRepeat: false, context: fresh) == .consume(.playPause))
         // The stage commands answer in both.
         let mic = ShortcutMap.default.chord(for: .toggleMicrophone)
         #expect(HotkeyPolicy.decide(mic, isRepeat: false, context: stale) == .consume(.toggleMicrophone))
