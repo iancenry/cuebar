@@ -352,7 +352,11 @@ struct SidebarView: View {
                 Image(systemName: "plus")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(CuePalette.inkMuted)
-                    .frame(width: 16, height: 16)
+                    // Trailing-aligned inside a deliberately oversized box.
+                    // Centring the glyph put it ~4pt left of the counts'
+                    // right edge, so the two columns visibly disagreed; the
+                    // box stays big because it is also the tap target.
+                    .frame(width: 20, height: 18, alignment: .trailing)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
