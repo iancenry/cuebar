@@ -32,6 +32,18 @@ protocol TranscriptionEvents: AnyObject {
 /// The lock guards every mutable field, which is the documented contract
 /// for the unchecked Sendable conformance below.
 final class VoiceActivityDetector: @unchecked Sendable {
+    /// Noise floor bounds. The ceiling is the important one: it is well
+    /// below the level of speech, so a loud room can never raise the bar
+    /// until normal talking fails to trip it.
+    private static let floorFloor: Double = 0.002
+    private static let floorCeiling: Double = 0.03
+    /// Rise rate per *sample*. The old 0.0005 adapted at ~24/s at 48 kHz,
+    /// which meant a single bang pushed the floor past the level of
+    /// ordinary speech in milliseconds and the detector stayed deaf for
+    /// the rest of the session — the presenter drumming on the desk
+    /// silenced their own prompter. A floor should creep, not sprint.
+    private static let floorRiseRate: Double = 0.00002
+
     private let lock = NSLock()
     private var smoothed = 0.0
     private var floor = 0.02
@@ -43,9 +55,10 @@ final class VoiceActivityDetector: @unchecked Sendable {
             guard rms.isFinite else { return }
             smoothed = smoothed * 0.7 + min(rms, 1.0) * 0.3
             if rms < floor {
-                floor = max(0.002, rms)
+                floor = max(Self.floorFloor, rms)
             } else {
-                floor += (rms - floor) * 0.0005
+                floor = min(Self.floorCeiling,
+                            floor + (rms - floor) * Self.floorRiseRate)
             }
         }
     }
@@ -71,7 +84,7 @@ final class VoiceActivityDetector: @unchecked Sendable {
     func reset() {
         lock.withLock {
             smoothed = 0
-            floor = 0.02
+            floor = Self.floorFloor
             silenceTicks = 0
             wasSpeaking = false
         }

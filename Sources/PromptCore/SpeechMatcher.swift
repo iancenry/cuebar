@@ -102,6 +102,28 @@ public enum SpeechMatcher: Sendable {
         "im", "ive", "id", "thats", "its",
     ]
 
+    /// Words a chain may skip and still count as one stretch of speech.
+    ///
+    /// Four, not two, and the reason is the recognizer rather than the
+    /// reader: on-device transcription garbles whole words ("Cuebar" →
+    /// "Cuba", "Press Option-Space to" → "It's best to"), so a live read
+    /// routinely presents gaps of three or four script words. With a
+    /// two-word cap the chain never completed and the highlight froze at
+    /// the first misheard word — matching was too strict to survive real
+    /// recognition, and the only version loose enough to survive it was
+    /// the plain subsequence scan, which a desk bang also survived.
+    static let maxChainGap = 4
+    /// How much of the span it claims a chain must actually cover. The
+    /// gap cap alone still let a chain stretch thin; this is the floor
+    /// that makes "the … to" from a noisy room unconfirmable.
+    static let minChainDensity = 0.4
+    /// Hard ceiling on what one confirmation may claim, so even a
+    /// well-formed chain can't leap across a page on three stray words.
+    static let maxChainSpan = 12
+    /// How far past the pointer one transcript word may match. Bounds the
+    /// damage a bogus far match does to the rest of the tail.
+    static let maxProbeAhead = 12
+
     /// Collapse consecutive duplicate words. "we're we're going" →
     /// "we're going". Speech stutters and recognition double-fires are
     /// the primary targets.
@@ -169,17 +191,16 @@ public enum SpeechMatcher: Sendable {
             guard !transcriptWords.isEmpty, !entries.isEmpty, windowSize > 0 else { return nil }
             guard let first = entries.firstIndex(where: { $0.index >= fromWordIndex }) else { return nil }
             let last = min(first + windowSize, entries.count)
+            // Strict matching is verbatim and contiguous, so two words in
+            // a row already *are* the evidence — it keeps the 2-word floor.
             let minMatch = entries.count == 1 ? 1 : 2
-
             if !tolerant {
-                // Strict: original contiguous substring matching.
                 return SpeechMatcher.matchContiguous(
                     transcriptWords: transcriptWords,
                     canon: entries, first: first, last: last, minMatch: minMatch,
                     wordCount: wordCount
                 )
             }
-            // Tolerant: greedy subsequence scan.
             return SpeechMatcher.matchSubsequence(
                 transcriptWords: transcriptWords,
                 canon: entries, first: first, last: last, minMatch: minMatch,
@@ -229,34 +250,117 @@ public enum SpeechMatcher: Sendable {
         return nil
     }
 
-    /// Greedy subsequence match. Walks through transcript words and
-    /// advances a script pointer whenever a word matches. The furthest
-    /// script position reached is the answer.
+    /// Greedy subsequence match, confirmed only by a *dense chain* of
+    /// recent matches.
     ///
-    /// This naturally handles skipped words (pointer jumps), repeated
-    /// words (duplicate transcript words match sequential script words),
-    /// and filler-stripped transcripts (fillers never reach here).
+    /// Two things this has to get right, both of which used to be wrong:
+    ///
+    /// 1. **A transcript word with no match must not consume the window.**
+    ///    The old scan advanced its pointer to the end of the window on the
+    ///    first miss and gave up. Drivers hand over the last 20 words of
+    ///    the session, so the tail's first word is normally *behind* the
+    ///    reading position, is not in the window, and matching returned nil
+    ///    for the rest of the script — the highlight then followed the WPM
+    ///    clock instead of the reader. Misses are now skipped.
+    /// 2. **Order alone is not evidence.** "the … to" is a subsequence of
+    ///    almost any 40-word window, so two stray words from noise
+    ///    confirmed everything between them and the highlight shot ahead
+    ///    of the reader. A match now has to be a *chain*: consecutive
+    ///    script positions with at most `maxChainGap` skipped words, at
+    ///    least `minMatch` words long, covering at least
+    ///    `minChainDensity` of the span it claims.
+    ///
+    /// The chain is grown backwards from the most recent match, so what
+    /// gets confirmed is always anchored to what was just said — a long
+    /// confirmed stretch can never be built out of old transcript words.
     fileprivate static func matchSubsequence(
         transcriptWords: [String],
         canon: [CanonicalScript.Entry],
         first: Int, last: Int, minMatch: Int,
         wordCount: Int
     ) -> Int? {
-        var si = first  // script pointer
-        var matched = 0
-        for tw in transcriptWords {
-            while si < last {
-                if canon[si].text == tw {
-                    matched += 1
-                    si += 1
-                    break
-                }
-                si += 1
-            }
-            if si >= last { break }
+        // Every transcript word is tried as the anchor of the alignment,
+        // and the best chain wins. A single greedy pass cannot recover
+        // from a duplicate: the reader's second "to" is heard first and
+        // claims the script's "to", so by the time the real
+        // "to play click any" arrives the pointer is past "play" and the
+        // whole run is unmatchable. That is not a hypothetical — a live
+        // read of "Welcome to Cuebar. Press Option-Space to play." stalls
+        // at word 2 forever, because the recognizer renders the middle as
+        // "It's best to". The tail is 20 words and the window is 12, so
+        // trying all the anchors costs a few thousand comparisons on a
+        // handful of results per second.
+        var bestLength = 0
+        var bestDensity = 0.0
+        var bestNewest = -1
+        var bestEnd = -1
+        for anchor in transcriptWords.indices {
+            let chain = chain(anchoredAt: anchor, transcriptWords: transcriptWords,
+                              canon: canon, first: first, last: last)
+            guard let end = chain.end, let oldest = chain.first, let newest = chain.newest else { continue }
+            guard chain.length >= minMatch, end - oldest <= maxChainSpan else { continue }
+            let density = Double(chain.length) / Double(end - oldest)
+            guard density >= minChainDensity else { continue }
+            // Best-*supported* wins, not furthest. The tail admits several
+            // alignments and the most distant one is usually the
+            // coincidence — a stray pair of common words reaching furthest.
+            // Preferring it made the highlight sprint past the reader.
+            let better = chain.length > bestLength
+                || (chain.length == bestLength && density > bestDensity)
+                || (chain.length == bestLength && density == bestDensity && end > bestEnd)
+            guard better else { continue }
+            bestLength = chain.length
+            bestDensity = density
+            bestNewest = newest
+            bestEnd = end
         }
-        guard matched >= minMatch else { return nil }
-        let end = canon[si - 1].index + 1
-        return (si == last && si - first >= canon.count - first) ? wordCount : end
+        guard bestEnd > 0 else { return nil }
+        let end = canon[bestNewest].index + 1
+        return end >= wordCount ? wordCount : end
+    }
+
+    private struct Chain {
+        /// Canon position just past the chain's newest match.
+        var end: Int?
+        /// Canon position of the chain's oldest match.
+        var first: Int?
+        /// Canon position of the chain's newest match.
+        var newest: Int?
+        var length = 0
+    }
+
+    /// One greedy pass from `anchor`, keeping only the stretch of matches
+    /// that hang together: each within `maxChainGap` of the last. Grown
+    /// backwards from the newest match, so what is confirmed is always
+    /// anchored to the most recent thing heard.
+    private static func chain(anchoredAt anchor: Int,
+                              transcriptWords: [String],
+                              canon: [CanonicalScript.Entry],
+                              first: Int, last: Int) -> Chain {
+        var si = first
+        var hits: [Int] = []
+        for i in transcriptWords.indices.dropFirst(anchor) {
+            let tw = transcriptWords[i]
+            // Bounded lookahead: a match far ahead of the pointer is not
+            // evidence about where the reader is, and letting it through
+            // would drag the pointer past the real position.
+            let probeEnd = min(last, si + maxProbeAhead)
+            var probe = si
+            var hit: Int?
+            while probe < probeEnd {
+                if canon[probe].text == tw { hit = probe; break }
+                probe += 1
+            }
+            guard let hit else { continue }   // skip the word, keep the pointer
+            si = hit + 1
+            hits.append(hit)
+        }
+        guard let newest = hits.last else { return Chain() }
+        var start = hits.count - 1
+        while start > 0, hits[start] - hits[start - 1] <= maxChainGap {
+            start -= 1
+        }
+        return Chain(end: newest + 1, first: hits[start], newest: newest,
+                     length: hits.count - start)
     }
 }

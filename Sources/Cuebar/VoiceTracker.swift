@@ -40,10 +40,16 @@ final class VoiceTracker {
     /// few seconds after you stop talking, and matching during that drain
     /// marches the highlight through repeated phrases on its own.
     private(set) var lastSpeechDate: Date?
-    /// Last time a transcript actually confirmed script words. Smart mode
-    /// moves with this clock: no confirmations means the WPM timer is
-    /// allowed to take over as a stall guard (paraphrasing, accents).
-    private(set) var lastMatchDate: Date?
+    /// Last time the recognizer produced *any* text.
+    ///
+    /// This — not the level meter — is the evidence that a human is
+    /// speaking. A VAD trips on a door, a chair, a fist on the desk, and
+    /// the adaptive floor only learns to ignore a *sustained* noise, so
+    /// anything gated on `isSpeaking` alone can be walked along by
+    /// hammering the desk. Words in the recognizer's output cannot.
+    private(set) var lastWordDate: Date?
+    /// Last tail handed to the matcher, so a re-delivered one is skipped.
+    private var lastMatchedTail: String = ""
     /// Recent input levels (~6 s at the 8 Hz ticker) for the waveform.
     /// Appends flat zeros when idle so the wave settles instead of freezing.
     private(set) var levelHistory: [Double] = Array(repeating: 0, count: 48)
@@ -133,6 +139,8 @@ final class VoiceTracker {
         driverName = ""
         audioLevel = 0
         isSpeaking = false
+        lastWordDate = nil
+        lastMatchedTail = ""
         speechSeenSincePlay = false
         lastSpeechDate = nil
         transcriptCount = 0
@@ -143,9 +151,26 @@ final class VoiceTracker {
 
     /// Restart session state after a script change. Matching resumes from
     /// the current position; nothing jumps back.
+    /// The read position moved *backwards* — a tap on an earlier word, or
+    /// a re-read. The accumulated transcript describes the script as it
+    /// was before the jump, so those spoken words now sit *ahead* of the
+    /// new position and a matcher will happily confirm straight through
+    /// them: "let me read this bit again" became a sprint to the end of
+    /// the script, leaving the reader behind. Forget the past audio and
+    /// follow the voice from where they actually are.
+    func abandonTranscript() {
+        driver?.resetTranscript()
+        lastTranscript = ""
+        lastMatchedTail = ""
+    }
+
     func recycle() {
         driver?.resetTranscript()
         refreshCanonicalScript()
+        // A different script means a different tail, and the dedupe that
+        // skips re-judged tails would otherwise swallow the first words
+        // of the new one.
+        lastMatchedTail = ""
     }
 
     /// Canonicalise the script once per load, not once per recognition
@@ -160,9 +185,6 @@ final class VoiceTracker {
     /// voice-activated guidance re-arms its WPM fallback.
     func resetSpeechSeen() {
         speechSeenSincePlay = false
-        // Start the Smart stall clock now so the first unrecognized
-        // seconds fall back to WPM instead of freezing.
-        lastMatchDate = Date()
     }
 
     /// Called from the app ticker (~8 Hz): refresh the published VAD state.
@@ -217,27 +239,43 @@ extension VoiceTracker: TranscriptionEvents {
         guard state == .listening else { return }
         lastTranscript = text
         transcriptCount += 1
-        guard let engine, !text.isEmpty else { return }
-        // Only match while speech is recent. After you stop talking the
-        // recognizer drains its buffer for a few seconds; matching those
-        // stale results would keep stepping the highlight forward.
-        let recentSpeech = isSpeaking
-            || (lastSpeechDate.map { Date().timeIntervalSince($0) < 1.5 } ?? false)
-        guard recentSpeech else { return }
+        // Words only. An analyzer emits a result for *every* audio window
+        // it decides is speech-shaped, and the text is empty until it has
+        // something to say — so stamping `lastWordDate` here made the
+        // "the recognizer is producing words" gate into "a result
+        // arrived", which a bang on the desk satisfies. It has to be a
+        // word-bearing transcript.
+        let heardWords = !SpeechMatcher.tokenize(text).isEmpty
+        if heardWords { lastWordDate = Date() }
+        guard let engine, heardWords else { return }
         // Match only the tail. Drivers accumulate the whole session's
         // text and re-fire on every partial result — rescanning the full
         // transcript each time is O(session²) for nothing, since the
         // reading position only ever moves forward.
         let tail = SpeechMatcher.transcriptTail(text, maxWords: 20)
+        // Skip re-matching a tail we have already judged. This is what
+        // stops the recognizer's post-speech drain from being reprocessed
+        // dozens of times — and it replaces a guard that keyed on the VAD
+        // (`isSpeaking` / `lastSpeechDate`). That guard meant to keep
+        // drained audio from moving the highlight, but the VAD is a level
+        // meter: it read "silent" through an entire spoken read and threw
+        // away 35 real transcripts, so nothing followed anybody. The words
+        // themselves are the evidence, and an unchanged tail has nothing
+        // new to say.
+        guard tail != lastMatchedTail else { return }
+        lastMatchedTail = tail
         // O(1) staleness check: a script load that skipped `recycle()` would
         // otherwise match the old words.
         let canon = canonical?.wordCount == engine.words.count
             ? canonical
             : refreshCanonicalScript()
-        if let end = canon?.matchEnd(transcript: tail,
-                                     fromWordIndex: engine.currentWordIndex ?? 0) {
-            lastMatchDate = Date()
-            engine.confirmReadThroughWord(end)
+        let end = canon?.matchEnd(transcript: tail,
+                                  fromWordIndex: engine.currentWordIndex ?? 0)
+        if let end {
+            // Glided: a confirmation covers a whole phrase, and moving the
+            // highlight that far in one frame is what made it look like it
+            // was jumping around instead of following the voice.
+            engine.confirmReadThroughWord(end, glide: true)
         }
     }
 

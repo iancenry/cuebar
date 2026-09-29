@@ -46,6 +46,11 @@ struct MicStatus: View {
         if voice.isMutedByUser { return "Muted" }
         switch voice.state {
         case .listening:
+            // The mic being open and the recognizer working are different
+            // claims. "Listening…" next to a dead transcriber reads as
+            // healthy, and the prompter then follows nobody for no visible
+            // reason — say so instead.
+            if voice.transcriptCount == 0 { return "No words yet" }
             return voice.isSpeaking ? "Hearing you" : "Listening…"
         case .requesting:
             return "Starting mic…"

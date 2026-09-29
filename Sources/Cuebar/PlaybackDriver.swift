@@ -34,13 +34,20 @@ struct PlaybackDriver: View {
     /// Smart mode: how long speech may continue without a confirmed
     /// match before the WPM timer takes over (paraphrasing, accents,
     /// noisy rooms). Matches are the primary driver.
-    private static let matchStallGrace: TimeInterval = 2.5
+    /// How recently the recognizer must have produced text to count as
+    /// speech. Partial results arrive in bursts, so this has to be wider
+    /// than the gap between them.
+    private static let wordEvidenceWindow: TimeInterval = 1.5
 
     /// Hot-loop scratch. Reference semantics keep the 60 Hz writes out of
     /// SwiftUI's invalidation graph.
     final class TickState {
         var last: Date?
         var voicePollAccumulator: Double = 0
+        /// Last reading position seen, to spot a jump backwards. Kept in
+        /// the tick box, not @State: this runs 60 times a second and the
+        /// value only exists to be compared with the next tick.
+        var lastWord = 0
     }
 
     /// Smart pause accumulators and state. Same reason as `TickState`.
@@ -191,6 +198,21 @@ struct PlaybackDriver: View {
             tickState.voicePollAccumulator = 0
             voice.pollVoice()
         }
+        // Any pending confirmation walks on regardless of mode; a no-op
+        // when nothing is queued, and the only thing that moves the
+        // highlight in Smart mode.
+        engine.glideStep(delta)
+
+        // Reading position went backwards — a tap on an earlier word or a
+        // re-read. Whatever the mic has heard so far describes the script
+        // from *before* that, so those words are now ahead of the reader
+        // and matching would confirm straight past them. Drop the
+        // transcript. Polled rather than hooked to `jumpTo` so every
+        // route back — tap, chord, restart — is covered by one check.
+        let position = engine.currentWordIndex ?? 0
+        if position < tickState.lastWord { voice.abandonTranscript() }
+        tickState.lastWord = position
+
         let guidance = settings.settings.guidance
         let speaking = voice.isSpeaking
 
@@ -212,28 +234,57 @@ struct PlaybackDriver: View {
             engine.tick(delta)
 
         case .voiceActivated:
-            // Speak-to-scroll: the WPM timer is the engine here. The
-            // fallback grace only covers the first seconds after Play. A
-            // deliberate mute falls back to the clock on purpose — the
-            // presenter asked to stop listening, not to stop reading.
-            if speaking || micFallbackActive || voice.isMutedByUser
+            // Speak-to-scroll: the WPM timer is the engine here. Gated on
+            // the recognizer producing words, NOT on the level meter — a
+            // bang on the desk is loud enough to trip any VAD, and gating
+            // on it let noise scroll the script on its own. The fallback
+            // grace only covers the first seconds after Play. A deliberate
+            // mute falls back to the clock on purpose — the presenter
+            // asked to stop listening, not to stop reading.
+            if spokeRecently || micFallbackActive || voice.isMutedByUser
                 || engine.isStopping || engine.isHolding {
                 engine.tick(delta)
             }
 
         case .wordTracking:
-            // Matches drive the highlight (VoiceTracker →
-            // confirmReadThroughWord). Ticking at WPM through every
-            // detected breath made it cruise ahead of the reader's
-            // words; the timer now only takes over when matching has
-            // stalled — paraphrasing, accents, noisy rooms.
-            let sinceMatch = voice.lastMatchDate.map { Date().timeIntervalSince($0) } ?? .infinity
-            let stalled = speaking && sinceMatch > Self.matchStallGrace
-            if engine.isStopping || engine.isHolding || micFallbackActive
-                || stalled || voice.isMutedByUser {
+            // Matches are the only thing that moves the highlight here.
+            //
+            // This case used to run the WPM clock as a fallback — a 3s
+            // post-Play grace plus a 2.5s stall timer — and both
+            // fallbacks *destroyed the mode*. The clock walked the
+            // highlight ahead of the reader, the script window slid past
+            // the words they were actually saying, so nothing could ever
+            // match, and the stall timer saw "no match" and kept ticking.
+            // Measured on a live read: real transcripts arriving, zero
+            // matches, `stalled=true` for the whole take. A bang on the
+            // desk held the fallback open indefinitely, which is how noise
+            // scrolled the script. Pressing Play also ran the script
+            // through its first words before the reader said anything.
+            //
+            // The clock now only runs when the recognizer has never
+            // delivered a single word — the level meter is then the only
+            // evidence there is and a frozen prompter is the worse failure
+            // — or when the presenter muted the mic on purpose.
+            if engine.isStopping || engine.isHolding || voice.isMutedByUser
+                || (voice.transcriptCount == 0 && voice.isSpeaking) {
                 engine.tick(delta)
             }
         }
+    }
+
+    /// True when the recognizer produced text recently — the only proof of
+    /// speech that noise can't fake.
+    ///
+    /// The one exception is a recognizer that has *never* delivered
+    /// anything: then the level meter is all there is, and a prompter that
+    /// refuses to move because transcription is broken is a worse failure
+    /// than a VAD false positive. After the first transcript ever arrives,
+    /// words are the only evidence that counts.
+    private var spokeRecently: Bool {
+        if let at = voice.lastWordDate {
+            return Date().timeIntervalSince(at) < Self.wordEvidenceWindow
+        }
+        return voice.transcriptCount == 0 && voice.isSpeaking
     }
 
     /// True only while Play just started, the mic is actually alive, and

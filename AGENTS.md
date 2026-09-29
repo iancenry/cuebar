@@ -70,13 +70,30 @@ and ad-hoc signs it.
 - **Swift 6.2 runtime bug**: `MainActor.assumeIsolated` crashes (SIGBUS) when
   called from a run-loop context with no task. The ticker is a MainActor
   `Task` loop — do not reintroduce `Timer` + `assumeIsolated`.
-- **Voice-gated ticking**: voiceActivated ticks only while speaking, but both
-  voice modes must keep ticking while `engine.isStopping || engine.isHolding` or
-  pause() never settles and timed cues never expire.
+- **Voice-gated ticking**: voiceActivated ticks only while the *recognizer is
+  producing words* (`VoiceTracker.lastWordDate`), not while the level meter says
+  speech — a bang on the desk trips any VAD, and the adaptive noise floor only
+  learns to ignore a *sustained* noise, so level-gated ticking let a bumped desk
+  scroll the script. The sole exception is a recognizer that has never delivered
+  a single transcript, where the level meter is the only evidence available and a
+  frozen prompter is the worse failure. Both voice modes must also keep ticking
+  while `engine.isStopping || engine.isHolding` or pause() never settles and
+  timed cues never expire.
 - **Smart mode is match-driven**: confirmed transcript matches move the highlight;
-  the WPM timer only takes over after a ~2.5 s match stall (`lastMatchDate`) or
-  the 3 s post-Play grace — ticking it during all speech cruised ahead of the
-  reader's words. Transcript matching only fires while speech is recent
+  the WPM timer only takes over after a ~2.5 s match stall (`lastMatchDate`) *and*
+  recent recognized words, or during the 3 s post-Play grace — ticking it during
+  all detected sound cruised ahead of the reader's words and turned room noise
+  into scrolling. `SpeechMatcher` confirms a *chain* (consecutive script
+  positions, ≤`maxChainGap` apart, ≥`minChainDensity` of its span, grown back from
+  the newest match): a plain subsequence scan confirmed everything between any two
+  heard words, and a transcript word that missed used to consume the whole script
+  window — which killed matching entirely once the 20-word tail sat behind the
+  reading position. Every transcript word is tried as the anchor of the
+  alignment and the best chain wins, because a single greedy pass cannot
+  recover from a duplicate word — the on-device recognizer garbles enough
+  of a live read ("Cuebar" → "Cuba", "Press Option-Space to" → "It's best
+  to") that a two-word gap cap never completed a chain and the highlight
+  froze at the first misheard word. Transcript matching only fires while speech is recent
   (<1.5 s since last VAD hit — recognizers drain buffered audio after you stop).
 - **Manual always wins**: play/pause/jump cancel holds; matching never moves the
   highlight backwards (monotonic confirm).

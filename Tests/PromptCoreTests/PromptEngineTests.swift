@@ -248,3 +248,65 @@ import PromptCore
         #expect(e.pauseReason == nil)
     }
 }
+
+@Suite struct PromptEngineGlideTests {
+    static let script = (1...40).map { "word\($0)" }.joined(separator: " ")
+
+    @Test @MainActor func aConfirmationWalksRatherThanTeleports() {
+        let e = PromptEngine()
+        e.loadScript(Self.script)
+        e.setSpeed(3.0)                       // 3 w/s reading → 4.2 w/s glide
+        e.confirmReadThroughWord(10, glide: true)
+        // Nothing has moved yet — the walk is driven per frame.
+        #expect(e.currentWordIndex == 0)
+        for _ in 0..<60 { e.glideStep(1.0 / 60.0) }
+        #expect(e.currentWordIndex == 4)       // ~2.4 words, mid-glide
+        for _ in 0..<90 { e.glideStep(1.0 / 60.0) }
+        #expect(e.currentWordIndex == 10)
+    }
+
+    @Test @MainActor func theGlideIsPacedByTheReadingSpeed() {
+        // A flat rate ignores the reader: pause for two seconds and the
+        // marker races through the backlog. The walk has to run at roughly
+        // the speed they are reading.
+        let slow = PromptEngine()
+        slow.loadScript(Self.script)
+        slow.setSpeed(1.0)                     // 1 w/s → 1.4 w/s glide
+        slow.confirmReadThroughWord(10, glide: true)
+        for _ in 0..<60 { slow.glideStep(1.0 / 60.0) }
+        #expect(slow.currentWordIndex == 1)
+
+        let quick = PromptEngine()
+        quick.loadScript(Self.script)
+        quick.setSpeed(6.0)                    // clamped to a 6 w/s glide
+        quick.confirmReadThroughWord(10, glide: true)
+        for _ in 0..<60 { quick.glideStep(1.0 / 60.0) }
+        #expect(quick.currentWordIndex! > slow.currentWordIndex!)
+    }
+
+    @Test @MainActor func aOneWordConfirmationIsImmediate() {
+        let e = PromptEngine()
+        e.loadScript(Self.script)
+        e.confirmReadThroughWord(1, glide: true)
+        #expect(e.currentWordIndex == 1)
+    }
+
+    @Test @MainActor func aJumpAbandonsAPendingGlide() {
+        let e = PromptEngine()
+        e.loadScript(Self.script)
+        e.confirmReadThroughWord(20, glide: true)
+        e.jumpTo(wordIndex: 2)
+        for _ in 0..<200 { e.glideStep(1.0 / 60.0) }
+        // A queued confirmation must never drag the highlight back.
+        #expect(e.currentWordIndex == 2)
+    }
+
+    @Test @MainActor func glidingNeverRunsBackwards() {
+        let e = PromptEngine()
+        e.loadScript(Self.script)
+        e.confirmReadThroughWord(10, glide: true)
+        e.confirmReadThroughWord(4, glide: true)   // a worse alignment lands
+        for _ in 0..<200 { e.glideStep(1.0 / 60.0) }
+        #expect(e.currentWordIndex == 10)
+    }
+}

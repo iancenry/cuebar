@@ -230,13 +230,24 @@ final class AnalyzerDriver: TranscriptionDriver {
             let ratio = target.sampleRate / buffer.format.sampleRate
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 64
             guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
-            // Pull-style conversion: feed this one buffer, then signal end
-            // of the current input so the converter flushes what it can.
+            // Pull-style conversion: feed this one buffer, then tell the
+            // converter there is nothing more *right now*.
+            //
+            // `.noDataNow`, never `.endOfStream`. A tap is a continuous
+            // stream, and end-of-stream permanently finishes the converter:
+            // measured with synthetic audio over 200 consecutive tap
+            // callbacks, `.endOfStream` yielded 1 output buffer in total
+            // and `.noDataNow` yielded 200. So the endOfStream version
+            // handed SpeechAnalyzer 28ms of audio at the start of the
+            // session and silence forever after — no transcripts at all,
+            // while the VAD (which reads the raw tap, before conversion)
+            // kept reporting speech. That is a prompter that follows nobody
+            // and scrolls itself on every bang. Do not "simplify" this back.
             var fed = false
             var error: NSError?
             converter.convert(to: out, error: &error) { _, inputStatus in
                 if fed {
-                    inputStatus.pointee = .endOfStream
+                    inputStatus.pointee = .noDataNow
                     return nil
                 }
                 fed = true

@@ -169,3 +169,73 @@ import PromptCore
         #expect(SpeechMatcher.transcriptTail(long, maxWords: 3) == "word word word")
     }
 }
+
+// MARK: - Regressions: the matcher has to follow a live reader
+
+@Suite struct SpeechMatcherLiveTests {
+    /// Long enough that a 20-word transcript tail sits mostly *behind* the
+    /// reading position, which is the steady state of a real read.
+    let script = (1...60).map { "w\($0)" }
+
+    @Test func matchesWhenTheTailStartsBehindThePosition() {
+        // The reader is at w31; the tail is 20 words, so its first ten are
+        // already read. The old scan walked its pointer to the end of the
+        // window on that first miss and gave up — matching never worked
+        // again once the reader was past the tail length.
+        let tail = ((11...30).map { "w\($0)" } + (31...35).map { "w\($0)" }).joined(separator: " ")
+        let end = SpeechMatcher.matchEnd(transcript: tail, words: script, fromWordIndex: 30)
+        #expect(end == 35)
+    }
+
+    @Test func twoStrayWordsCannotConfirmTheDistanceBetweenThem() {
+        // "the" sits at w5, "to" at w30. In order, so a plain subsequence
+        // scan confirms w30 — noise moves the highlight 25 words ahead and
+        // every real word after it stops matching.
+        let words = (1...40).map { $0 == 5 ? "the" : ($0 == 30 ? "to" : "w\($0)") }
+        let end = SpeechMatcher.matchEnd(transcript: "the to", words: words, fromWordIndex: 0)
+        #expect(end == nil)
+    }
+
+    @Test func aChainStillSkipsASingleUnspokenWord() {
+        // The behaviour the tolerant mode exists for: a skipped word is
+        // tolerated, and the run after it confirms.
+        let words = ["Today", "we're", "going", "to", "talk", "about", "three", "topics"]
+        let end = SpeechMatcher.matchEnd(transcript: "Today talk about three topics",
+                                          words: words, fromWordIndex: 0)
+        #expect(end == 8)
+    }
+
+    @Test func confirmationStopsAtTheLastHeardWord() {
+        // The reader said w1…w10 and then something unrelated. The old scan
+        // walked the window looking for the trailing words and reported
+        // whatever it found; confirmation has to stop at the last word that
+        // actually matched, so the highlight tracks the voice instead of
+        // running on into the script.
+        let tail = "w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 something unrelated entirely"
+        let end = SpeechMatcher.matchEnd(transcript: tail, words: script, fromWordIndex: 0)
+        #expect(end == 10)
+    }
+}
+
+@Suite struct SpeechMatcherGarbledSpeechTests {
+    /// What the on-device recognizer actually produced for the Welcome
+    /// script, logged from a live read: "Cuebar" → "Cuba" and
+    /// "Press Option-Space to" → "It's best to". Two wrong words in a row,
+    /// then a four-word gap before the next real run.
+    static let script = "Welcome to Cuebar. Press Option-Space to play. Click any word to jump straight there."
+
+    @Test func survivesTwoMisheardWords() {
+        let end = SpeechMatcher.matchEnd(
+            transcript: "welcome to cuba it's best to play click any",
+            words: ScriptParser.words(Self.script), fromWordIndex: 2)
+        #expect(end == 9)
+    }
+
+    @Test func aWholeConfirmationCannotOutrunItsEvidence() {
+        // Three words is the floor, and the span they may claim is capped,
+        // so noise can nudge the highlight but never fling it down the page.
+        let words = (1...40).map { "w\($0)" }
+        let end = SpeechMatcher.matchEnd(transcript: "w1 w20 w39", words: words, fromWordIndex: 0)
+        #expect(end == nil)
+    }
+}

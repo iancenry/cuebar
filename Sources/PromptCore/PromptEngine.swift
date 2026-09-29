@@ -259,6 +259,7 @@ public final class PromptEngine {
     public func jumpTo(wordIndex: Int) -> Int {
         guard !words.isEmpty else { return 0 }
         cancelHold()
+        abandonGlide()
         if wordIndex >= words.count {
             charRemainder = 0
             setReadCharCount(cachedTotal)
@@ -280,9 +281,11 @@ public final class PromptEngine {
     /// they lose their place.
     public func restart() {
         cancelHold()
+        abandonGlide()
         pauseReason = nil
         guard !words.isEmpty else { return }
         charRemainder = 0
+        abandonGlide()
         setReadCharCount(0)
         effectiveWordsPerSecond = 0
         stopping = false
@@ -315,12 +318,93 @@ public final class PromptEngine {
     /// Voice layer: mark words up to (not including) `endIndex` as read.
     /// Index-based twin of `confirmRead(upTo:)` so speech matching never
     /// touches character offsets.
-    public func confirmReadThroughWord(_ endIndex: Int, allowBacktrack: Bool = false) {
+    ///
+    /// `glide: true` walks the highlight there instead of teleporting. The
+    /// recognizer hands over a whole phrase at a time, so a confirmation
+    /// routinely covers four to eight words; applying it in one frame moves
+    /// the highlight that far in a single step, which reads as the marker
+    /// jumping around rather than following the voice. The glide is what
+    /// makes it look like the words being said.
+    public func confirmReadThroughWord(_ endIndex: Int, allowBacktrack: Bool = false,
+                                       glide: Bool = false) {
         guard !words.isEmpty else { return }
         let clamped = max(0, min(endIndex, words.count))
         let offset = clamped >= words.count ? cachedTotal : wordStartOffsets[clamped]
-        confirmRead(upTo: offset, allowBacktrack: allowBacktrack)
+        guard glide, offset > readCharCount else {
+            glideTarget = nil
+            confirmRead(upTo: offset, allowBacktrack: allowBacktrack)
+            return
+        }
+        // A one-word confirmation is not worth animating, and the highlight
+        // is expected to move that fast anyway.
+        let target = wordStartOffsets.lastIndex { $0 <= offset } ?? 0
+        if target <= (currentWordIndex ?? 0) + 1 {
+            glideTarget = nil
+            confirmRead(upTo: offset, allowBacktrack: allowBacktrack)
+            return
+        }
+        // A later, worse alignment must not shorten a walk already in
+        // flight: the recognizer's tail keeps changing, and confirmation is
+        // monotonic, so a smaller end is a worse read of the same speech —
+        // not a retraction. Only ever push the target further out.
+        if let pending = glideTarget, pending.word >= target {
+            glideTarget = pending
+            return
+        }
+        glideTarget = (word: target, char: offset)
     }
+
+    /// Words per second the highlight walks a pending confirmation at.
+    ///
+    /// Derived from the reading speed, not a constant. A flat fast rate
+    /// ignores the reader completely: pause for two seconds and the marker
+    /// races through the backlog at 14 w/s, which looks like it stopped
+    /// following you. This is a little ahead of the reading clock so it can
+    /// catch up, clamped so it neither crawls nor bolts.
+    public var glideWordsPerSecond: Double {
+        min(6, max(1.5, wordsPerSecond * 1.4))
+    }
+
+    /// Advance a pending confirmation, one word at a time. Called every
+    /// frame regardless of mode; a no-op when nothing is pending. Word
+    /// units, not characters — a character walk crawls through long words
+    /// and the highlight appears to stall on them.
+    public func glideStep(_ delta: Double) {
+        guard let target = glideTarget, !words.isEmpty else { return }
+        guard delta > 0 else { return }
+        let here = currentWordIndex ?? 0
+        if here >= target.word {
+            glideTarget = nil
+            return
+        }
+        // Fractional, so the walk is `glideWordsPerSecond` words a second
+        // rather than one per frame — a 60 Hz tick would otherwise cover a
+        // six-word gap in 100ms, which is the teleport all over again.
+        glideRemainder += glideWordsPerSecond * delta
+        let whole = Int(glideRemainder)
+        guard whole > 0 else { return }
+        glideRemainder -= Double(whole)
+        let word = min(here + whole, target.word)
+        charRemainder = 0
+        setReadCharCount(word >= words.count ? cachedTotal : wordStartOffsets[word])
+        if word >= target.word {
+            glideRemainder = 0
+            glideTarget = nil
+        }
+    }
+
+    /// Drop a pending glide. Called wherever the read position is set from
+    /// outside — a jump, a restart, a new script — so a queued confirmation
+    /// can never drag the highlight back onto its old path afterwards.
+    func abandonGlide() {
+        glideTarget = nil
+        glideRemainder = 0
+    }
+
+    /// Where a glided confirmation is heading: the word to stop on and the
+    /// character offset it corresponds to.
+    private var glideTarget: (word: Int, char: Int)?
+    private var glideRemainder: Double = 0
 
     private func setReadCharCount(_ value: Int) {
         readCharCount = max(0, min(value, cachedTotal))
