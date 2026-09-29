@@ -21,7 +21,8 @@ struct MicStatus: View {
         }
         .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
+        .frame(height: CuePalette.chromeControlHeight)
         .glassSurface(in: Capsule())
         .help(help)
     }

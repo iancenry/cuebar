@@ -24,6 +24,10 @@ struct ContentView: View {
     let app: AppCommandBridge
     @State private var mode: PerformMode = .perform
     @State private var follow = true
+    @State private var windowState = WindowState()
+    /// Measured, not assumed: the user can drag the divider, and the dock's
+    /// fullscreen centring is derived from it.
+    @State private var sidebarWidth: CGFloat = 240
     @State private var sharing = SharingGuard()
 
     /// Whatever the mode shows, edge to edge. Split out of `body` because
@@ -42,11 +46,20 @@ struct ContentView: View {
         }
     }
 
+    /// The dock rides the bottom of the *column*, so its natural centre is
+    /// half a sidebar right of the window's midline — which in fullscreen
+    /// means half a sidebar right of the notch. Shifting by half the
+    /// measured sidebar puts the play button on the screen's centre line.
+    /// Windowed it stays on the column's centre, next to the text it
+    /// controls. Fullscreen always sizes the window to the screen, so the
+    /// dock (700pt) still clears the sidebar with room to spare and needs
+    /// no width clamp.
     private var transport: some View {
         TransportBar(engine: engine, settings: settings, overlay: overlay,
                      voice: voice, index: index, follow: $follow)
             .padding(.horizontal, 16)
             .padding(.bottom, 14)
+            .offset(x: windowState.isFullscreen ? -sidebarWidth / 2 : 0)
     }
 
     var body: some View {
@@ -58,6 +71,14 @@ struct ContentView: View {
                         onCategory: { setCategory($0, for: $1) },
                         onExport: { ScriptIO.export($0) })
                 .background(CuePalette.sidebar)
+                .background {
+                    GeometryReader { _ in
+                        Color.clear
+                            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
+                                sidebarWidth = $0
+                            }
+                    }
+                }
             // The content column owns the (slim) top bar; the traffic
             // lights live over the sidebar like Codex — no app-title
             // strip spanning the window. In Perform the reading canvas
@@ -78,7 +99,7 @@ struct ContentView: View {
             .frame(minWidth: 520)
         }
         .background {
-            WindowConfigurator()
+            WindowConfigurator(state: windowState)
         }
         .background {
             PlaybackDriver(engine: engine, scripts: scripts, settings: settings,

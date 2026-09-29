@@ -45,9 +45,10 @@ struct TopBar: View {
                 Button("Settings…") { openSettings() }
             } label: {
                 Image(systemName: "gearshape.fill")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(CuePalette.muted)
-                    .frame(width: 30, height: 30)
+                    .frame(width: CuePalette.chromeControlHeight,
+                           height: CuePalette.chromeControlHeight)
                     .contentShape(Circle())
             }
             .menuStyle(.borderlessButton)
@@ -57,9 +58,11 @@ struct TopBar: View {
             .help("Display, follow mode and settings")
             .accessibilityLabel("Display, follow mode and settings")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
         .glassGroup(spacing: 12)
+        .padding(.horizontal, CuePalette.chromeRowMargin)
+        // Fixed, not derived: whatever a control measures, the band stays
+        // the title-bar line and the controls centre on it.
+        .frame(height: CuePalette.chromeRowHeight)
     }
 }
 
@@ -73,7 +76,8 @@ struct ModeSwitcher: View {
             segment(.perform, "Perform")
             segment(.edit, "Edit")
         }
-        .padding(3)
+        .padding(2)
+        .frame(height: CuePalette.chromeControlHeight)
         .glassSurface(in: Capsule())
     }
 
@@ -84,8 +88,8 @@ struct ModeSwitcher: View {
             Text(title)
                 .font(.callout.weight(mode == value ? .semibold : .regular))
                 .foregroundStyle(mode == value ? CuePalette.onHighlight : CuePalette.ink.opacity(0.65))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 2)
                 .background {
                     if mode == value {
                         Capsule().fill(CuePalette.peach)

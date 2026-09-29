@@ -119,12 +119,24 @@ enum CuePalette {
     static let selection = Color.white.opacity(0.085)
 
     static let cardRadius: CGFloat = 16
-    /// Height of the floating chrome band: the tallest control (26pt) plus
-    /// the strip's 5pt breathing room above and below. One constant, because
-    /// the reading surface, the editor and the sidebar all have to start
-    /// under the same line — a second guess here is what left the page
-    /// climbing behind the pills in an earlier pass.
-    static let chromeRowHeight: CGFloat = 36
+    /// The band the floating chrome floats in: a 24pt control with 4pt of
+    /// air above and below. The window's title-bar strip is 28pt and macOS
+    /// centres the traffic lights on its midline, so a 32pt band puts the
+    /// controls 2pt below that line — close enough to read as level, and
+    /// the air is what stops the pills looking glued to the window edge.
+    /// The earlier 39pt band (control plus its own padding) hung them 5.5pt
+    /// low, which read as "not centred" even though the row was symmetric.
+    /// One constant, because the page, the editor and the sidebar all have
+    /// to start under the same line.
+    static let chromeRowHeight: CGFloat = 32
+    /// Height of a control in the band. Has to leave the line above with
+    /// 2pt to spare, or the control grows the row and drops the chrome
+    /// below the lights again.
+    static let chromeControlHeight: CGFloat = 24
+    /// Side margin for the band. Generous on purpose: in fullscreen the
+    /// window's edge *is* the screen's edge, so a 12pt margin left the
+    /// gear reading as clipped rather than inset.
+    static let chromeRowMargin: CGFloat = 16
 }
 
 /// Status chip: "Reading… 00:14" / "Holding 1.4s" / "Paused". Mural pill.
@@ -165,7 +177,8 @@ struct StatusPill: View {
         .accessibilityLabel(label)
         .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
+        .frame(height: CuePalette.chromeControlHeight)
         .glassSurface(in: Capsule())
     }
 }

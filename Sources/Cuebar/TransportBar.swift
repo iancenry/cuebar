@@ -24,10 +24,39 @@ struct TransportBar: View {
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
                 .accessibilityLabel("Progress")
-            HStack(spacing: 10) {
-                SpeedControl(engine: engine, settings: settings)
-                HoldBoostButton(engine: engine, settings: settings)
-                Spacer(minLength: 8)
+            // Transport centred by overlay, not by spacers. Two `Spacer`s
+            // only centre the play cluster when the side clusters measure
+            // the same — speed+boost is ~70pt wider than Follow+expand, so
+            // play sat ~36pt right of true centre and the trailing group
+            // was jammed against the edge (worst in fullscreen, where the
+            // dock is widest). Pinning the sides and centring the
+            // transport on the dock's own midline is width-independent, so
+            // no future control can shove it off.
+            ZStack {
+                HStack(spacing: 10) {
+                    SpeedControl(engine: engine, settings: settings)
+                    HoldBoostButton(engine: engine, settings: settings)
+                    Spacer(minLength: 8)
+                    Toggle("Follow", isOn: $follow)
+                        .toggleStyle(.switch).controlSize(.small)
+                        .tint(CuePalette.peach)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .help("Keep the viewport chasing the highlighted word. Off: browse freely while playback runs — page arrows appear, and scrolling releases Follow automatically.")
+                    Button(action: {
+                        overlay.toggle(engine: engine, settings: settings,
+                                      index: index, voice: voice)
+                    }) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(CuePalette.ink.opacity(0.8))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .background(Color.white.opacity(0.07), in: Circle())
+                    .accessibilityLabel(overlay.isShowing ? "Close overlay" : "Pop out overlay")
+                    .help(overlay.isShowing ? "Close overlay" : "Pop out overlay")
+                }
                 HStack(spacing: 12) {
                     SkipButton(icon: "gobackward.10") {
                         engine.jumpRelative(words: -skipWords)
@@ -39,32 +68,13 @@ struct TransportBar: View {
                     }
                     .accessibilityLabel("Forward 10 seconds")
                 }
-                Spacer(minLength: 8)
-                Toggle("Follow", isOn: $follow)
-                    .toggleStyle(.switch).controlSize(.small)
-                    .tint(CuePalette.peach)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .help("Keep the viewport chasing the highlighted word. Off: browse freely while playback runs — page arrows appear, and scrolling releases Follow automatically.")
-                Button(action: {
-                    overlay.toggle(engine: engine, settings: settings,
-                                  index: index, voice: voice)
-                }) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(CuePalette.ink.opacity(0.8))
-                        .frame(width: 32, height: 32)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .background(Color.white.opacity(0.07), in: Circle())
-                .accessibilityLabel(overlay.isShowing ? "Close overlay" : "Pop out overlay")
-                .help(overlay.isShowing ? "Close overlay" : "Pop out overlay")
             }
+            .frame(height: 58)
             .padding(.horizontal, 14)
             .padding(.top, 8)
             .padding(.bottom, 12)
         }
-        .frame(maxWidth: 780)
+        .frame(maxWidth: 700)
         // A real Liquid Glass dock: text scrolls behind it and blurs,
         // which is what makes the material read as glass instead of a
         // flat gray pill on flat gray chrome.
