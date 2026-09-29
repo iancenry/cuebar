@@ -46,7 +46,10 @@ struct EditView: View {
                 .foregroundStyle(CuePalette.ink)
                 .scrollContentBackground(.hidden)
                 .padding(12)
-                .background(CuePalette.card, in: RoundedRectangle(cornerRadius: CuePalette.cardRadius))
+                // Opaque, not a translucent card: the field is right behind
+                // this now, and a 6% white wash over it would put the whole
+                // fresco in the writing surface.
+                .background(CuePalette.surface, in: RoundedRectangle(cornerRadius: CuePalette.cardRadius))
                 .overlay {
                     RoundedRectangle(cornerRadius: CuePalette.cardRadius)
                         .strokeBorder(CuePalette.hairline, lineWidth: 1)

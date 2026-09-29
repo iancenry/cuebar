@@ -12,7 +12,17 @@ struct SidebarView: View {
     var onCategory: (String, UUID) -> Void
     var onExport: (ScriptDocument) -> Void = { _ in }
     @State private var search = ""
-    @State private var filter: String? = nil
+    /// Two levels, not a filter. A filter keeps the folder list on screen
+    /// and appends the scripts under it, which is the thing that read as
+    /// "one undifferentiated run" — a script visible under its folder *and*
+    /// in All Scripts, with nothing saying which list you were looking at.
+    /// Opening a library replaces the list; a back row returns to it.
+    private enum Library: Equatable {
+        case root        // the folders
+        case all         // every script
+        case category(String)
+    }
+    @State private var library: Library = .root
     @State private var showingNewCategory = false
     @State private var newCategoryName = ""
     @State private var pendingCategoryDoc: UUID? = nil
@@ -36,21 +46,25 @@ struct SidebarView: View {
         return counts
     }
 
-    private func visible(from docs: [ScriptDocument]) -> [ScriptDocument] {
-        guard let filter else { return docs }
-        return docs.filter { $0.category == filter }
+    private var visible: [ScriptDocument] {
+        switch library {
+        case .root, .all:
+            return searched
+        case .category(let name):
+            return searched.filter { $0.category == name }
+        }
     }
 
-    /// Scripts under each folder for the tree, honoring the search text.
-    private func scripts(in category: String, from docs: [ScriptDocument]) -> [ScriptDocument] {
-        docs.filter { $0.category == category }
+    private var openLibraryName: String {
+        switch library {
+        case .root, .all: return "All Scripts"
+        case .category(let name): return name
+        }
     }
 
     var body: some View {
         // Computed once per body pass: these were `private var`s read 5-11
         // times below, and each read re-filtered every script body.
-        let searched = searched
-        let visible = visible(from: searched)
         let counts = countsByCategory
         VStack(spacing: 0) {
             // Clears the traffic lights, which float over this corner.
@@ -59,7 +73,9 @@ struct SidebarView: View {
             // of beside it — and the pill is a control, not a divider, so
             // putting the two on one line would misread as a header.
             Color.clear.frame(height: CuePalette.chromeRowHeight)
-            // Action row: the sidebar's primary verb, Codex-style.
+            // The sidebar's primary verb, but not a button-shaped button:
+            // a filled capsule with a stroke next to a list of plain rows
+            // read as a dialog welded to the rail. Wash on hover only.
             Button(action: onNew) {
                 HStack(spacing: 8) {
                     Image(systemName: "square.and.pencil")
@@ -68,16 +84,11 @@ struct SidebarView: View {
                         .font(.callout.weight(.medium))
                     Spacer()
                 }
-                .foregroundStyle(CuePalette.ink)
+                .foregroundStyle(hoveringNew ? CuePalette.ink : CuePalette.ink.opacity(0.88))
                 .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .glassSurface(in: RoundedRectangle(cornerRadius: 10), interactive: true)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(hoveringNew ? CuePalette.peach.opacity(0.35) : CuePalette.hairline,
-                                      lineWidth: 1)
-                }
-                .contentShape(RoundedRectangle(cornerRadius: 10))
+                .padding(.vertical, 7)
+                .background(CuePalette.hover, in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
             .onHover { hoveringNew = $0 }
@@ -92,53 +103,102 @@ struct SidebarView: View {
                 .padding(.bottom, 4)
             ScrollView {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Library")
-                        .font(.caption2.weight(.bold))
-                        .tracking(1.1)
-                        .textCase(.uppercase)
-                        .foregroundStyle(CuePalette.muted)
-                        .padding(.leading, 10)
-                        .padding(.top, 14)
-                        .padding(.bottom, 6)
-                    LibraryFolder(name: "All Scripts",
-                                  count: scripts.scripts.count,
-                                  selected: filter == nil) {
-                        filter = nil
+                    // A heading, not a stencil: semibold at reading size
+                    // with the count beside it, the way a section of a
+                    // list announces itself. The small-caps treatment
+                    // shouted a two-word label.
+                    HStack(spacing: 6) {
+                        Text("Library")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(CuePalette.ink.opacity(0.95))
+                        Text("\(scripts.knownCategories.count)")
+                            .font(.caption).monospacedDigit()
+                            .foregroundStyle(CuePalette.inkMuted)
+                        Spacer()
                     }
-                    // One folder per category; scripts nest beneath.
-                    ForEach(scripts.knownCategories, id: \.self) { category in
-                        LibraryFolder(name: category,
-                                      count: counts[category] ?? 0,
-                                      selected: filter == category) {
-                            filter = (filter == category) ? nil : category
+                    .padding(.leading, 10)
+                    .padding(.top, 18)
+                    .padding(.bottom, 6)
+
+                    switch library {
+                    case .root:
+                        // The folders. Nothing else is on screen, so there
+                        // is no ambiguity about what a row below would mean.
+                        LibraryFolder(name: "All Scripts",
+                                      count: scripts.scripts.count,
+                                      selected: false) {
+                            library = .all
                         }
-                    if filter == nil || filter == category {
-                        ForEach(scripts(in: category, from: searched)) { doc in
-                            ScriptRow(
-                                doc: doc,
-                                selected: doc.id == scripts.selectedID,
-                                duration: ReadingWindow.durationString(
-                                    wordCount: doc.wordCount,
-                                    wordsPerSecond: wordsPerSecond),
-                                categories: scripts.knownCategories,
-                                onPick: { onPick(doc.id) },
-                                onCategory: { onCategory($0, doc.id) },
-                                onNewCategory: {
-                                    pendingCategoryDoc = doc.id
-                                    showingNewCategory = true
-                                },
-                                onExport: { onExport(doc) },
-                                onDelete: { scripts.delete(doc.id) }
-                            )
+                        ForEach(scripts.knownCategories, id: \.self) { category in
+                            LibraryFolder(name: category,
+                                          count: counts[category] ?? 0,
+                                          selected: false) {
+                                library = .category(category)
+                            }
                         }
-                    }
-                    }
-                    if visible.isEmpty && !scripts.scripts.isEmpty {
-                        Text(search.isEmpty ? "Nothing in this folder" : "No matches")
+
+                    case .all, .category:
+                        // Inside a library. The back row is the way out, and
+                        // it names where it goes — a chevron alone in a
+                        // 300pt rail is a puzzle.
+                        Button { library = .root } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left")
+                                    .font(.caption2.weight(.bold))
+                                Text("Library")
+                                Spacer()
+                            }
                             .font(.caption)
-                            .foregroundStyle(CuePalette.muted)
-                            .padding(.leading, 10)
-                            .padding(.top, 12)
+                            .foregroundStyle(CuePalette.inkMuted)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Back to libraries")
+
+                        HStack(spacing: 6) {
+                            Text(openLibraryName)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(CuePalette.ink.opacity(0.95))
+                                .lineLimit(1)
+                            Text("\(visible.count)")
+                                .font(.caption).monospacedDigit()
+                                .foregroundStyle(CuePalette.inkMuted)
+                            Spacer()
+                        }
+                        .padding(.leading, 10)
+                        .padding(.top, 4)
+                        .padding(.bottom, 4)
+
+                        if visible.isEmpty {
+                            Text(search.isEmpty
+                                 ? "Nothing in \(openLibraryName)"
+                                 : "No matches")
+                                .font(.caption)
+                                .foregroundStyle(CuePalette.inkMuted)
+                                .padding(.leading, 10)
+                                .padding(.top, 6)
+                        } else {
+                            ForEach(visible) { doc in
+                                ScriptRow(
+                                    doc: doc,
+                                    selected: doc.id == scripts.selectedID,
+                                    duration: ReadingWindow.durationString(
+                                        wordCount: doc.wordCount,
+                                        wordsPerSecond: wordsPerSecond),
+                                    categories: scripts.knownCategories,
+                                    onPick: { onPick(doc.id) },
+                                    onCategory: { onCategory($0, doc.id) },
+                                    onNewCategory: {
+                                        pendingCategoryDoc = doc.id
+                                        showingNewCategory = true
+                                    },
+                                    onExport: { onExport(doc) },
+                                    onDelete: { scripts.delete(doc.id) }
+                                )
+                            }
+                        }
                     }
                 }
                 .padding(.bottom, 10)
@@ -188,7 +248,7 @@ struct LibraryFolder: View {
                 Spacer()
                 Text("\(count)")
                     .font(.caption).monospacedDigit()
-                    .foregroundStyle(CuePalette.muted)
+                    .foregroundStyle(CuePalette.inkMuted)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -203,10 +263,11 @@ struct LibraryFolder: View {
     }
 }
 
-/// One script under its folder — single-line title, duration on the
-/// right, subtle highlight when selected. All row actions (move, export,
-/// delete) live behind one hover-revealed ⋯ menu and the context menu —
-/// never a stack of inline chevrons.
+/// One script under its folder: title over a category · duration line,
+/// with a tinted letter badge for the category. Selection is carried by the
+/// accent title and a faint wash rather than a filled box. All row actions
+/// live behind one hover-revealed ⋯ menu and the context menu — never a
+/// stack of inline chevrons.
 struct ScriptRow: View {
     let doc: ScriptDocument
     let selected: Bool
@@ -220,19 +281,29 @@ struct ScriptRow: View {
     @State private var hovered = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(selected ? CuePalette.peach : CuePalette.muted.opacity(0.35))
-                .frame(width: 5, height: 5)
-            Text(doc.title)
-                .font(.callout.weight(selected ? .medium : .regular))
-                .foregroundStyle(CuePalette.ink.opacity(selected ? 1 : 0.85))
+        HStack(alignment: .top, spacing: 8) {
+            CategoryBadge(name: doc.category)
+            // Title over a metadata line. One line of text per row left a
+            // flat grey list with nothing to scan; the second line is what
+            // gives the eye a shape to hold, and it is where the category
+            // and length live instead of competing with the title.
+            VStack(alignment: .leading, spacing: 1) {
+                Text(doc.title)
+                    .font(.callout.weight(selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? CuePalette.peach : CuePalette.ink.opacity(0.92))
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(doc.category)
+                        .lineLimit(1)
+                    Text("·")
+                    Text(duration)
+                        .monospacedDigit()
+                }
+                .font(.caption2)
+                .foregroundStyle(CuePalette.inkMuted)
                 .lineLimit(1)
+            }
             Spacer(minLength: 4)
-            Text(duration)
-                .font(.caption2).monospacedDigit()
-                .foregroundStyle(CuePalette.muted)
-                .lineLimit(1)
             if hovered || selected {
                 Menu {
                     Section("Move to") {
@@ -259,9 +330,9 @@ struct ScriptRow: View {
                 .transition(.opacity)
             }
         }
-        .padding(.leading, 14)
+        .padding(.leading, 10)
         .padding(.trailing, 6)
-        .padding(.vertical, 6)
+        .padding(.vertical, 5)
         .background(selected ? CuePalette.selection
                     : (hovered ? CuePalette.hover : Color.clear),
                     in: RoundedRectangle(cornerRadius: 8))
@@ -284,6 +355,33 @@ struct ScriptRow: View {
     }
 }
 
+/// Tinted letter badge, one hue per category so the rail is scannable by
+/// shape as well as by text. The hash is computed by hand because
+/// `hashValue` is seeded per process — rows would change colour on every
+/// launch.
+struct CategoryBadge: View {
+    let name: String
+
+    private var hue: Double {
+        var hash: UInt64 = 5381
+        for byte in name.utf8 { hash = (hash &* 33) &+ UInt64(byte) }
+        return Double(hash % 360) / 360
+    }
+
+    private var initial: String {
+        String(name.first.map { String($0).uppercased() } ?? "?")
+    }
+
+    var body: some View {
+        Text(initial)
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(Color(hue: hue, saturation: 0.35, brightness: 0.95).opacity(0.9))
+            .frame(width: 17, height: 17)
+            .background(Color(hue: hue, saturation: 0.30, brightness: 0.55).opacity(0.22),
+                        in: RoundedRectangle(cornerRadius: 5))
+    }
+}
+
 struct SearchField: View {
     @Binding var text: String
 
@@ -300,11 +398,7 @@ struct SearchField: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .glassSurface(in: RoundedRectangle(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(CuePalette.hairline, lineWidth: 1)
-        }
+        .padding(.vertical, 6)
+        .glassSurface(in: RoundedRectangle(cornerRadius: 9))
     }
 }

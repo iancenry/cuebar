@@ -90,9 +90,16 @@ struct PrompterBody: View {
                                     .padding(.vertical, 24)
                                     .frame(maxWidth: settings.settings.readingWidth ?? .infinity,
                                            alignment: settings.settings.textAlignment == .center ? .center : .leading)
-                                    .frame(maxWidth: .infinity, alignment: .center)
                                 }
                             }
+                            // On the *Group*, not inside the else. The empty
+                            // branch was the only one that never got a
+                            // full-width frame, so `ContentUnavailableView`
+                            // sized itself to its own text and sat left of
+                            // the canvas centre — the one screen a new
+                            // script always shows, and the one nobody
+                            // looks at closely enough to question.
+                            .frame(maxWidth: .infinity, alignment: .center)
                             // Short pages sit centered instead of hugging the
                             // top with a wall of empty space below.
                             .frame(minHeight: geo.size.height, alignment: .center)

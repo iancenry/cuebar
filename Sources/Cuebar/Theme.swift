@@ -100,6 +100,11 @@ enum CuePalette {
     static let ink = Color(red: 0.925, green: 0.925, blue: 0.933)
     /// Secondary text.
     static let muted = Color(red: 0.541, green: 0.541, blue: 0.561)
+    /// Secondary ink *over the painted rail*. A step brighter than `muted`:
+    /// the backdrop lifts the floor under the quiet text — counts,
+    /// subtitles, the empty-state line — and those are the elements that
+    /// were already closest to their contrast limit.
+    static let inkMuted = Color(red: 0.66, green: 0.66, blue: 0.685)
     /// Alternate reading ink.
     static let stone = Color(red: 0.72, green: 0.72, blue: 0.74)
     /// Slate reading surface option.

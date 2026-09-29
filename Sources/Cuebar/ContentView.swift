@@ -42,7 +42,10 @@ struct ContentView: View {
                          showsHeader: false)
                 .overlay(alignment: .bottom) { transport }
         } else {
+            // Paint in the editor's margins and around the page; the page
+            // itself is an opaque card, so the writing never sits on it.
             editor
+                .background(EditorBackdrop())
         }
     }
 
@@ -70,7 +73,7 @@ struct ContentView: View {
                         },
                         onCategory: { setCategory($0, for: $1) },
                         onExport: { ScriptIO.export($0) })
-                .background(CuePalette.sidebar)
+                .background(SidebarBackdrop())
                 .background {
                     GeometryReader { _ in
                         Color.clear
