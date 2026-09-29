@@ -110,7 +110,18 @@ struct DisplayTab: View {
                 } else {
                     SettingsCaption(text: "Nothing to connect to yet. Pop the prompter out (⌥O) and the remote comes up while it is showing.")
                 }
-                SettingsCaption(text: "A server on this network can move a live talk, so it only listens while the prompter is up, and the address is never advertised.")
+                ToggleRow(title: "Advertise on this network",
+                          isOn: $settings.settings.advertiseRemote,
+                          caption: "Lets a phone find “Cuebar” by name instead of you typing the address. Off by default: advertising is the one part of the remote that reaches onto the network uninvited, and macOS answers it with a permission prompt at full alert volume. Turning it on moves the address.")
+                SettingsCaption(text: "A server on this network can move a live talk, so it only listens while the prompter is up, and the address is never advertised. The name alone carries no authority — the token in the address is the whole of it.")
+                SettingRow(label: "Drive my deck") {
+                    Picker("Deck app", selection: $settings.settings.deckApp) {
+                        ForEach(CueSettings.DeckApp.allCases) { app in
+                            Text(app.label).tag(app)
+                        }
+                    }
+                }
+                SettingsCaption(text: "A [slide] cue moves your Keynote or PowerPoint as you read. Off by default: controlling another app makes macOS ask for permission, and a consent dialog in the middle of setting up a teleprompter is the wrong surprise. The slide count, the badges and the phone's stepper all work with this off.")
             }
             HStack {
                 Spacer()

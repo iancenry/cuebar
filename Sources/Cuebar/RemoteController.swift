@@ -42,6 +42,7 @@ final class RemoteController {
                        wordsPerMinute: 0, sections: [], elapsed: 0, remaining: 0)
     }
     private var perform: (RemoteCommand) -> Void = { _ in }
+    private var advertise = false
 
     /// Six hex characters is 16 million possibilities against a listener
     /// that only exists for a few minutes. It has to be short enough to
@@ -80,16 +81,32 @@ final class RemoteController {
     // MARK: - Arming
 
     func arm(state: @escaping () -> RemoteSnapshot,
-             perform: @escaping (RemoteCommand) -> Void) {
+             perform: @escaping (RemoteCommand) -> Void,
+             advertise: Bool = false) {
         self.state = state
         self.perform = perform
-        guard listener == nil else { return }
+        if listener != nil {
+            // Advertising is the only part of a live listener that can
+            // change, and it cannot change in place: a listener either has
+            // a Bonjour service attached or it hasn't. So flipping the
+            // setting means rebuilding it — and the port, and therefore the
+            // address, moves. Which is why the setting warns about that.
+            if advertise == self.advertise { return }
+            disarm()
+        }
+        self.advertise = advertise
 
         let listener = try? NWListener(using: .tcp, on: .any)
         guard let listener else { return }
-        // Bonjour, name only. Advertising the token would hand the remote
-        // to every device on the network.
-        listener.service = NWListener.Service(name: "Cuebar", type: "_cuebar._tcp")
+        // Bonjour, name only, and only when asked for: advertising the
+        // token would hand the remote to every device on the network, and
+        // advertising at all is what triggers the system's local-network
+        // permission prompt. Name and type carry no authority — the token
+        // in the URL is the whole of it — so there is nothing to gain by
+        // being findable that the address in Settings doesn't already give.
+        if advertise {
+            listener.service = NWListener.Service(name: "Cuebar", type: "_cuebar._tcp")
+        }
         listener.newConnectionHandler = { [weak self] connection in
             Task { @MainActor [weak self] in self?.serve(connection) }
         }

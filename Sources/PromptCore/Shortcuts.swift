@@ -113,6 +113,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     case jumpForward, jumpBack
     case restart
     case nextCue, previousCue
+    case nextSlide, previousSlide
     case toggleFollow
     case toggleMicrophone
     case toggleOverlay
@@ -127,7 +128,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     public var group: Group {
         switch self {
         case .playPause, .speedUp, .speedDown, .fineSpeedUp, .fineSpeedDown,
-             .jumpForward, .jumpBack, .restart, .nextCue, .previousCue:
+             .jumpForward, .jumpBack, .restart, .nextCue, .previousCue,
+             .nextSlide, .previousSlide:
             return .playback
         case .toggleFollow, .toggleMicrophone, .toggleOverlay, .toggleFullscreen:
             return .stage
@@ -148,6 +150,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .restart: return "Restart"
         case .nextCue: return "Next Cue"
         case .previousCue: return "Previous Cue"
+        case .nextSlide: return "Next Slide"
+        case .previousSlide: return "Previous Slide"
         case .toggleFollow: return "Toggle Follow"
         case .toggleMicrophone: return "Toggle Microphone"
         case .toggleOverlay: return "Toggle Overlay"
@@ -167,6 +171,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .jumpForward, .jumpBack: return "Skip about ten seconds of script."
         case .restart: return "Back to the first word, playing."
         case .nextCue, .previousCue: return "Jump to the word after the next or previous cue."
+        case .nextSlide, .previousSlide: return "Move the slide deck on or back one slide."
         case .toggleFollow: return "Stop or resume the viewport chasing the highlight."
         case .toggleMicrophone: return "Mute or unmute transcription."
         case .toggleOverlay: return "Show or hide the always-on-top prompter."
@@ -226,6 +231,11 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .restart: return KeyChord(keyCode: KeyCode.r, modifiers: .command)
         case .nextCue: return KeyChord(keyCode: KeyCode.rightBracket, modifiers: .option)
         case .previousCue: return KeyChord(keyCode: KeyCode.leftBracket, modifiers: .option)
+        // Shift on top of the nudge pair: ⌥→/⌥← already move ten seconds of
+        // script, so the slides want to be the "further out" version of the
+        // same gesture rather than a chord from an unrelated corner.
+        case .nextSlide: return KeyChord(keyCode: KeyCode.rightArrow, modifiers: [.option, .shift])
+        case .previousSlide: return KeyChord(keyCode: KeyCode.leftArrow, modifiers: [.option, .shift])
         case .toggleFollow: return KeyChord(keyCode: KeyCode.f, modifiers: .option)
         case .toggleMicrophone: return KeyChord(keyCode: KeyCode.m, modifiers: .option)
         case .toggleOverlay: return KeyChord(keyCode: KeyCode.o, modifiers: .option)

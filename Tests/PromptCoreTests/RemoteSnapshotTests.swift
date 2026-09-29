@@ -86,7 +86,8 @@ import Foundation
         // button on the phone 400 for the rest of the talk.
         for name in ["playPause", "speedUp", "speedDown", "fineSpeedUp", "fineSpeedDown",
                      "nextCue", "previousCue", "restart", "toggleFollow",
-                     "toggleMicrophone", "jumpForward", "jumpBack"] {
+                     "toggleMicrophone", "jumpForward", "jumpBack",
+                     "nextSlide", "previousSlide"] {
             #expect(ShortcutAction(rawValue: name) != nil, "\\(name) is not a command")
         }
     }

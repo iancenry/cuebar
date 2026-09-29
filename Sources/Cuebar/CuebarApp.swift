@@ -22,6 +22,9 @@ struct CuebarApp: App {
     /// controller the settings scene cannot see is a controller they cannot
     /// use.
     @State private var remote = RemoteController()
+    /// App-lifetime, and shared by the tick loop and the dispatcher: both
+    /// move the deck, and two counters is how they end up disagreeing.
+    @State private var slideSync = SlideSync()
 
     init() {
         FontLoader.register()
@@ -48,7 +51,7 @@ struct CuebarApp: App {
                         draftBody: $draftBody, tokens: $tokens, index: $index,
                         overlay: overlay, voice: voice, hotkeys: hotkeys,
                         globalHotkeys: globalHotkeys, app: appBridge,
-                        remote: remote)
+                        remote: remote, slideSync: slideSync)
                 .frame(minWidth: 1080, minHeight: 660)
                 // Camera-facing dark prompter: the palette is tuned for
                 // dark surfaces, so the app never follows Light Mode

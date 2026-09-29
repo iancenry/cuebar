@@ -65,6 +65,22 @@ public struct CueSettings: Codable, Equatable, Sendable {
     public enum TextColor: String, Codable, Sendable, CaseIterable {
         case paper, white, stone
     }
+    /// Which deck app `[slide]` cues drive. Plain data, so it can live here
+    /// and be persisted; the code that actually talks to Keynote lives in the
+    /// app, because it is the part that needs AppKit.
+    public enum DeckApp: String, Codable, Sendable, CaseIterable, Identifiable, Equatable {
+        case none, keynote, powerPoint
+        public var id: String { rawValue }
+
+        public var label: String {
+            switch self {
+            case .none: return "None"
+            case .keynote: return "Keynote"
+            case .powerPoint: return "PowerPoint"
+            }
+        }
+    }
+
     public enum SurfaceStyle: String, Codable, Sendable, CaseIterable {
         case espresso, black, slate
     }
@@ -118,6 +134,27 @@ public struct CueSettings: Codable, Equatable, Sendable {
     public var transparencyAmount: Double = 0.95 // 0 transparent … 1 opaque
     public var showElapsed: Bool = true
     public var hideFromShare: Bool = true
+    /// Whether the phone remote announces itself over Bonjour.
+    ///
+    /// **Off by default.** Advertising is the one part of the remote that
+    /// reaches out onto the network uninvited, and on macOS 15+ it is what
+    /// makes the system ask for local-network permission — a dialog that
+    /// arrives at full *alert* volume, so it can be startling on
+    /// headphones, at exactly the moment someone is about to present. The
+    /// remote works perfectly well without it: the address is in
+    /// Settings → Display → Phone Remote, typed once into Safari.
+    /// Turning this on buys "a phone can find Cuebar by name" and costs the
+    /// prompt, which is the user's call to make rather than ours.
+    public var advertiseRemote: Bool = false
+    /// Which deck app `[slide]` cues drive, if any.
+    ///
+    /// **Off by default**, and not out of caution about Keynote: because
+    /// Cuebar would be *controlling another application*, macOS treats it
+    /// as Automation and raises a consent dialog the first time. A consent
+    /// prompt is a poor surprise for a teleprompter, and a presenter should
+    /// be the one who asks for it. The slide position, the badges and the
+    /// phone's stepper all work with this off.
+    public var deckApp: DeckApp = .none
     public var autoNextScript: Bool = false
     public var pageSize: Int = 300
     public var fixedDisplayIndex: Int = 0

@@ -14,14 +14,22 @@ struct AppCommandBridge {
     var exportScript: () -> Void
 }
 
-/// Everything a command needs from the view tree. `follow` and `mode` are
-/// bindings so the dispatcher edits live state, not a copy of it. This half
-/// dies with the window; `AppCommandBridge` (above) does not.
+/// Everything a command needs from the view tree. `mode` is a binding so
+/// the dispatcher edits live state, not a copy of it. This half dies with
+/// the window; `AppCommandBridge` (above) does not.
+///
+/// Note what is *not* here: follow. It used to be a `Binding<Bool>` on this
+/// struct, which meant the dispatcher held a second copy of a flag the
+/// overlay already owned — and the phone remote, which also outlives the
+/// view, had to hold a third. Live state that outlives a view belongs on
+/// something app-lifetime, so follow lives on `OverlayController` and every
+/// writer goes through `setFollow`.
 struct CommandContext {
     var engine: PromptEngine
     var voice: VoiceTracker
     var overlay: OverlayController
-    var follow: Binding<Bool>
+    /// One slide position for the whole app, shared with the tick loop.
+    var slides: SlideSyncing
     var mode: Binding<PerformMode>
     /// The parsed script. Commands read pages and cues from here rather than
     /// re-walking tokens.
@@ -143,17 +151,22 @@ final class HotkeyCenter {
             Self.jump(seconds: -10, engine: engine)
         case .restart:
             engine.restart()
+        case .nextSlide:
+            context.slides.step(1)
+        case .previousSlide:
+            context.slides.step(-1)
         case .nextCue:
             jumpToCue(forward: true, context: context)
         case .previousCue:
             jumpToCue(forward: false, context: context)
         case .toggleFollow:
-            // One writer, both windows: the overlay keeps its own Follow so
-            // a script edit can't re-enable it, and two independent toggles
-            // would leave the windows disagreeing (or inverted).
-            let next = !(context.follow.wrappedValue || context.overlay.overlayFollow)
-            context.follow.wrappedValue = next
-            context.overlay.overlayFollow = next
+            // One writer: the overlay controller owns the flag, and it is
+            // the same flag the Mac's switches, the phone and "resume
+            // follow" all write. The old code kept a second copy in the
+            // view and made *this* case responsible for both, which is
+            // precisely the arrangement where a toggle can work in one
+            // place and read as "no change" in another.
+            context.overlay.setFollow(!context.overlay.isFollowing)
         case .toggleMicrophone:
             context.voice.isMutedByUser.toggle()
         case .toggleOverlay:

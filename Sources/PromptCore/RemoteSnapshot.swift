@@ -34,6 +34,10 @@ public struct RemoteSnapshot: Equatable, Sendable, Codable {
     /// and a toggle that doesn't show its state is a coin toss.
     public var isFollowing: Bool
     public var isMicMuted: Bool
+    /// The slide the deck is on, or nil when the script carries no slide
+    /// cues. Nil rather than 1: "slide 1" on a script that never mentioned
+    /// slides is a claim about a deck Cuebar has never seen.
+    public var slide: Int?
     /// Seconds elapsed and remaining at the current reading speed.
     public var elapsed: TimeInterval
     public var remaining: TimeInterval
@@ -45,14 +49,14 @@ public struct RemoteSnapshot: Equatable, Sendable, Codable {
                   totalWords: totalWords, wordsPerMinute: wordsPerMinute,
                   sections: sections, currentSection: nil,
                   hasPreviousSection: false, hasNextSection: false,
-                  isFollowing: false, isMicMuted: false,
+                  isFollowing: false, isMicMuted: false, slide: nil,
                   elapsed: elapsed, remaining: remaining)
     }
 
     public init(title: String, isPlaying: Bool, currentWord: Int, totalWords: Int,
                 wordsPerMinute: Double, sections: [String], currentSection: String?,
                 hasPreviousSection: Bool, hasNextSection: Bool,
-                isFollowing: Bool, isMicMuted: Bool,
+                isFollowing: Bool, isMicMuted: Bool, slide: Int? = nil,
                 elapsed: TimeInterval, remaining: TimeInterval) {
         self.title = title
         self.isPlaying = isPlaying
@@ -65,6 +69,7 @@ public struct RemoteSnapshot: Equatable, Sendable, Codable {
         self.hasNextSection = hasNextSection
         self.isFollowing = isFollowing
         self.isMicMuted = isMicMuted
+        self.slide = slide
         self.elapsed = elapsed
         self.remaining = remaining
     }
@@ -74,7 +79,8 @@ public struct RemoteSnapshot: Equatable, Sendable, Codable {
     /// rather than an error — the phone is not where the bug is.
     @MainActor
     public init(title: String, engine: PromptEngine, index: ScriptIndex,
-                isFollowing: Bool = false, isMicMuted: Bool = false) {
+                isFollowing: Bool = false, isMicMuted: Bool = false,
+                slide: Int? = nil) {
         let here = engine.currentWordIndex ?? 0
         self.init(title: title,
                   isPlaying: engine.isPlaying,
@@ -89,6 +95,7 @@ public struct RemoteSnapshot: Equatable, Sendable, Codable {
                                                         in: index.sections) != nil,
                   isFollowing: isFollowing,
                   isMicMuted: isMicMuted,
+                  slide: slide,
                   elapsed: ScriptTime.elapsed(word: here,
                                              wordsPerSecond: engine.wordsPerSecond),
                   remaining: ScriptTime.elapsed(

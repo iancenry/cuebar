@@ -22,9 +22,20 @@ final class OverlayController {
     private var closeObserver: (any NSObjectProtocol)?
     private weak var mainWindow: NSWindow?
     private var didHideMain = false
-    /// Overlay follow state lives here — not in the view — so script
-    /// edits (which rebuild rootView) can't silently re-enable it.
-    var overlayFollow = true
+    /// **The one owner of follow state**, not a mirror of it. It lives here
+    /// because this object is app-lifetime: script edits rebuild
+    /// `rootView`, and a view-local flag is re-created with it, which is
+    /// how follow used to silently re-enable itself. It was previously a
+    /// second copy that `toggleFollow` wrote alongside a view-local
+    /// `@State` that everything else read — two owners, one of which only
+    /// the keyboard knew about, and the phone's Follow light read whichever
+    /// one it captured when it armed.
+    private(set) var isFollowing = true
+
+    /// The single writer. Every other path — the Mac's Follow switches, the
+    /// keyboard, the phone, "resume follow" after a manual scroll — goes
+    /// through here, so there is no second place to drift.
+    func setFollow(_ on: Bool) { isFollowing = on }
     /// Notch island max width: beyond this it stops reading as hardware.
     private static let islandMaxWidth = 640.0
     var isShowing = false
@@ -46,6 +57,7 @@ final class OverlayController {
         self.engine = engine
         self.store = settings
         self.voice = voice
+        currentIndex = index
         self.snapshot = settings.settings
         let chrome = snapshot
         let island = chrome.overlayMode == .notch
@@ -111,8 +123,16 @@ final class OverlayController {
         onPresentingChanged?(true)
     }
 
+    /// The index the overlay is currently showing. Kept here so anything
+    /// that outlives the view — the phone remote — can read the live script
+    /// without capturing a `@Binding` that a re-created `@State` box would
+    /// orphan. Only meaningful while presenting, which is exactly when the
+    /// remote is armed.
+    private(set) var currentIndex = ScriptIndex(tokens: [])
+
     /// Live-refresh script text while the overlay stays open.
     func update(index: ScriptIndex) {
+        currentIndex = index
         guard let engine, let store, let voice, isShowing else { return }
         let island = store.settings.overlayMode == .notch
         hosting?.rootView = OverlayPanelView(engine: engine, settings: store, index: index,
@@ -120,8 +140,11 @@ final class OverlayController {
                                              onClose: { [weak self] in self?.hide() })
     }
 
-    private var followBinding: Binding<Bool> {
-        Binding(get: { self.overlayFollow }, set: { self.overlayFollow = $0 })
+    /// For the two Follow switches and anything that needs a `Binding`.
+    /// Public because the main window's prompter and the phone remote both
+    /// read the same flag through this, rather than each keeping a copy.
+    var followBinding: Binding<Bool> {
+        Binding(get: { self.isFollowing }, set: { self.setFollow($0) })
     }
 
     /// A settings value changed while the panel is open. Always refresh
@@ -252,6 +275,10 @@ final class OverlayController {
     func show(engine: PromptEngine, settings: SettingsStore, index: ScriptIndex, voice: VoiceTracker) {}
     func update(index: ScriptIndex) {}
     func hide() {}
+    func setFollow(_ on: Bool) {}
+    var isFollowing = true
+    var followBinding: Binding<Bool> { Binding(get: { isFollowing }, set: { isFollowing = $0 }) }
+    var currentIndex = ScriptIndex(tokens: [])
 #endif
 }
 

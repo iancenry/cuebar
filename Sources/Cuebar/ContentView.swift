@@ -23,8 +23,15 @@ struct ContentView: View {
     @Bindable var globalHotkeys: GlobalHotkeys
     let app: AppCommandBridge
     @Bindable var remote: RemoteController
+    /// One slide position for the whole app: the tick loop fires cues into
+    /// it and the dispatcher/phone step it, so the deck and the prompter
+    /// can't each keep their own count.
+    let slideSync: SlideSyncing
     @State private var mode: PerformMode = .perform
-    @State private var follow = true
+    /// Follow is not state here: it belongs to the app-lifetime
+    /// `OverlayController`, and this is just the view's handle on it. See
+    /// `OverlayController.isFollowing`.
+    private var follow: Binding<Bool> { overlay.followBinding }
     @State private var windowState = WindowState()
     /// Measured, not assumed: the user can drag the divider, and the dock's
     /// fullscreen centring is derived from it.
@@ -41,7 +48,7 @@ struct ContentView: View {
     @ViewBuilder private var stage: some View {
         if mode == .perform {
             PrompterBody(engine: engine, index: index,
-                         settings: settings, voice: voice, follow: $follow,
+                         settings: settings, voice: voice, follow: follow,
                          showsFooter: false, showsPageControls: true,
                          bottomInset: 112, topInset: CuePalette.chromeRowHeight,
                          showsHeader: false)
@@ -69,13 +76,14 @@ struct ContentView: View {
     /// no width clamp.
     private var transport: some View {
         TransportBar(engine: engine, settings: settings, overlay: overlay,
-                     voice: voice, index: index, follow: $follow)
+                     voice: voice, index: index, follow: follow)
             .padding(.horizontal, 16)
             .padding(.bottom, 14)
             .offset(x: windowState.isFullscreen ? -sidebarWidth / 2 : 0)
     }
 
     var body: some View {
+        let follow = follow
         HSplitView {
             SidebarView(scripts: scripts, index: index, engine: engine,
                         wordsPerSecond: engine.wordsPerSecond,
@@ -117,7 +125,7 @@ struct ContentView: View {
         .background {
             PlaybackDriver(engine: engine, scripts: scripts, settings: settings,
                            overlay: overlay, voice: voice, index: index,
-                           mode: $mode, pick: pick)
+                           mode: $mode, pick: pick, slideSync: slideSync)
         }
         .background {
             BoostKeys(engine: engine, settings: settings, mode: $mode)
@@ -126,72 +134,19 @@ struct ContentView: View {
             HotkeyWiring(hotkeys: hotkeys, globalHotkeys: globalHotkeys, app: app,
                          shortcuts: settings.settings.shortcuts, index: index,
                          context: CommandContext(engine: engine, voice: voice,
-                                                 overlay: overlay, follow: $follow,
+                                                 overlay: overlay, slides: slideSync,
                                                  mode: $mode, index: index),
                          mode: $mode)
         }
-        .onAppear {
-            if let doc = scripts.selected { showDraft(doc) }
-            // The global key tap needs both collaborators, and neither
-            // exists at App-init time.
-            globalHotkeys.attach(hotkeys: hotkeys, overlay: overlay)
-            // Reopening the window with the prompter already up must not
-            // leave the remote disarmed: `onChange` only sees edges, and
-            // `arm` is idempotent, so asking again is free.
-            if overlay.isShowing { armRemote() }
-
-            sharing.setHidden(settings.settings.hideFromShare)
-            // Persisted prefs are the source of truth; the engine starts live.
-            engine.setSpeed(settings.settings.wordsPerSecond)
-            engine.naturalPacing = settings.settings.naturalPacing
-        }
-        .onChange(of: scripts.selectedID) { _, new in
-            guard let id = new, let doc = doc(matching: id) else {
-                draftBody = ""
-                tokens = []
-                index = ScriptIndex(tokens: [])
-                engine.loadScript("")
-                return
-            }
-            showDraft(doc)
-        }
-        .onChange(of: overlay.isShowing) { _, showing in
-            if showing { armRemote() } else { remote.disarm() }
-        }
-        .onChange(of: index) { _, new in
-            // One index drives the open panel: pages, cues and the empty
-            // check all come from it, so a re-render never re-parses.
-            if overlay.isShowing { overlay.update(index: new) }
-            // The remote captured `$index` when it armed, and a binding
-            // outlives the view pass that made it. Re-arm so the phone pages
-            // the script you have now, not the one from when you opened it.
-            if overlay.isShowing { armRemote() }
-        }
-        .onChange(of: follow) { _, _ in
-            // Same reason, and this one was visible: the phone's Follow
-            // light never moved, because the binding the remote held had
-            // been left behind by a re-created `@State` box while the
-            // dispatcher's context was still writing the live one. Toggles
-            // worked, the display lied. Re-arming re-captures the live one.
-            if overlay.isShowing { armRemote() }
-        }
-        .onChange(of: overlay.isShowing) { _, _ in
-            // The global tap only runs while presenting.
-            globalHotkeys.sync()
-        }
-        .onChange(of: settings.settings.overlayMode) { _, _ in
-            if overlay.isShowing {
-                overlay.show(engine: engine, settings: settings, index: index, voice: voice)
-            }
-        }
-        .onChange(of: settings.settings.hideFromShare) { _, hide in
-            sharing.setHidden(hide)
-        }
-        .onChange(of: settings.settings) { _, _ in
-            // Transparency, sharing, and size apply live to the open panel
-            // — but only when a window-relevant field actually changed.
-            if overlay.isShowing { overlay.settingsDidChange(settings.settings) }
-        }
+        .modifier(ContentLifecycle(scripts: scripts, index: index, settings: settings,
+                                   engine: engine, voice: voice, overlay: overlay,
+                                   remote: remote, hotkeys: hotkeys,
+                                   globalHotkeys: globalHotkeys, slides: slideSync,
+                                   sharing: sharing,
+                                   draftBody: $draftBody, tokens: $tokens,
+                                   indexBinding: $index,
+                                   showDraft: showDraft, doc: doc,
+                                   armRemote: armRemote))
     }
 
     private var editor: some View {
@@ -236,20 +191,21 @@ struct ContentView: View {
     /// the commands both come from here, so a remote button lands in the
     /// same place a key press would.
     private func armRemote() {
-        // `$index` and `$follow`, **not the values**. Both closures below
-        // outlive this call, and a value captured here is frozen at the
-        // moment the prompter opened: the phone's follow light and its
-        // section pager were reading a stale copy while the engine — a
-        // class, so genuinely live — made position and speed look correct
-        // and hid it. A binding reads through to the current value.
-        let index = $index
-        let follow = $follow
+        // **Only app-lifetime objects are captured here.** These closures
+        // outlive this call, and a `@Binding` captured into them can be
+        // orphaned by a re-created `@State` box — reads freeze at the value
+        // from arm time while the dispatcher keeps writing the live one, so
+        // a toggle works and the display says it didn't. Two of those
+        // (`$index`, `$follow`) were the cause; the state now reads them
+        // from the overlay, and the command closures read `index` from it
+        // too. Everything captured below is a class, and cannot go stale.
         remote.arm(
             state: {
                 RemoteSnapshot(title: scripts.selected?.title ?? "", engine: engine,
-                               index: index.wrappedValue,
-                               isFollowing: follow.wrappedValue,
-                               isMicMuted: voice.isMutedByUser)
+                               index: overlay.currentIndex,
+                               isFollowing: overlay.isFollowing,
+                               isMicMuted: voice.isMutedByUser,
+                               slide: slideSync.slide)
             },
             // No `[weak self]`: ContentView is a struct, and the controller
             // is owned by it, so the closure's lifetime is the view's. A
@@ -262,12 +218,13 @@ struct ContentView: View {
                     hotkeys.perform(action)
                 case .scrub(let fraction):
                     let snapshot = RemoteSnapshot(title: "", engine: engine,
-                                                  index: index.wrappedValue)
+                                                  index: overlay.currentIndex)
                     engine.jumpTo(wordIndex: snapshot.wordIndex(forProgress: fraction))
                 case .sectionOffset(let step):
-                    jumpSection(by: step, in: index.wrappedValue)
+                    jumpSection(by: step, in: overlay.currentIndex)
                 }
-            })
+            },
+            advertise: settings.settings.advertiseRemote)
     }
 
     /// Next or previous section. The arithmetic lives in the snapshot, so

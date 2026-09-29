@@ -6,8 +6,17 @@ import AppKit
 /// The painting, decoded once.
 ///
 /// A real image is what gets this right: a mesh gradient can only produce
-/// smooth colour fields, and the reference gets its depth from *structure*
-/// behind the blur. A portrait crop suits the rail's ~0.27 aspect.
+/// smooth colour fields, and this gets its depth from *structure* behind the
+/// blur. A portrait crop suits the rail's ~0.27 aspect.
+///
+/// **This is Nintendo's Kirby, and it is here for local use only.** It is
+/// not ours to ship, so it has to be replaced with something licensed for
+/// distribution before Cuebar goes to anyone else. A generated replacement
+/// was tried and rejected: it came out a plainer brown smudge with a visible
+/// vignette edge, where this has a subject, a palette and a texture that
+/// survive the 13pt blur. If it does get replaced, judge the candidate
+/// *through* that blur — a 1/8-scale render blurred and restored is a good
+/// stand-in — and don't let a substitute in without being shown it first.
 ///
 /// Decoded once rather than per render: both the rail and the editor
 /// re-render on every hover and keystroke, and re-decoding a JPEG each

@@ -212,6 +212,16 @@
     </div>
   </section>
 
+  <section class="card" id="slideCard" hidden>
+    <div class="row" style="margin-bottom:8px">
+      <span class="cap">Slide</span><span class="cap" id="slideState">—</span>
+    </div>
+    <div class="nudge">
+      <button id="slideBack"><span class="glyph">‹</span><span class="cap">Back</span></button>
+      <button id="slideFwd"><span class="glyph">›</span><span class="cap">Next</span></button>
+    </div>
+  </section>
+
   <section class="nudge">
     <button id="jumpBack"><span class="glyph">‹‹</span><span class="cap">10s back</span></button>
     <button id="jumpFwd"><span class="glyph">››</span><span class="cap">10s on</span></button>
@@ -296,6 +306,18 @@
     $('total').textContent = fmt(s.elapsed + s.remaining);
     $('rate').textContent = `${Math.round(s.wordsPerMinute)} wpm`;
 
+    // Slides: hidden entirely for a script with no `[slide]` cues, because a
+    // stepper that says "slide 1" is a claim about a deck Cuebar has never
+    // seen. The server sends nil, not 1, precisely so this can tell.
+    const slide = s.slide;
+    $('slideCard').hidden = (slide === null || slide === undefined);
+    if (slide !== null && slide !== undefined) {
+      // No "of N": the deck's length is the deck app's business, and a
+      // confident "3 of 7" derived from a guess is worse than "3".
+      $('slideState').textContent = `now ${slide}`;
+      $('section').textContent = `slide ${slide}`;
+    }
+
     $('followState').textContent = s.isFollowing ? 'on' : 'off';
     $('follow').className = s.isFollowing ? 'on' : 'bad';
     $('micState').textContent = s.isMicMuted ? 'muted' : 'live';
@@ -341,6 +363,8 @@
   $('restart').addEventListener('click', () => act({ action: 'restart' }));
   $('jumpBack').addEventListener('click', () => act({ action: 'jumpBack' }));
   $('jumpFwd').addEventListener('click', () => act({ action: 'jumpForward' }));
+  $('slideBack').addEventListener('click', () => act({ action: 'previousSlide' }));
+  $('slideFwd').addEventListener('click', () => act({ action: 'nextSlide' }));
   $('follow').addEventListener('click', () => act({ action: 'toggleFollow' }));
   $('mic').addEventListener('click', () => act({ action: 'toggleMicrophone' }));
 

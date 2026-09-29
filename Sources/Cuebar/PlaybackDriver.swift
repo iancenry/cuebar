@@ -20,9 +20,12 @@ struct PlaybackDriver: View {
     /// second, and as `@State` on the view every write invalidated
     /// `PlaybackDriver.body` (nine modifiers) to redraw a zero-size view.
     @State private var tickState = TickState()
-    /// Where a crossed `[slide N]` goes. Owned here because the tick is:
-    /// the prompter must not stall on a third-party app that may not answer.
-    private let slideSync = SlideSync()
+    /// Where a crossed `[slide N]` goes. Owned by the app, not by this view:
+    /// the phone's slide buttons and ⌥⇧→ move the same position, and a
+    /// second counter here is how the deck and the prompter drift apart. The
+    /// tick is still the only thing that *fires* cues, and it fires them
+    /// straight through without waiting on a third-party app.
+    let slideSync: SlideSyncing
     @State private var smartPause = SmartPauseState()
     /// Voice polling cadence: the VAD and level history were designed
     /// around ~8 Hz, and polling at the 60 Hz ticker rate republished
