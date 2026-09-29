@@ -238,3 +238,141 @@ import Foundation
         #expect(rows.compactMap(\.cue) == index.cues.filter { $0 != nil })
     }
 }
+
+@Suite struct ScriptSectionTests {
+    @Test func headingsBecomeSectionsNotWords() {
+        let index = ScriptIndex(tokens: ScriptParser.parse("""
+        # Introduction
+
+        Welcome to the show. [smile]
+
+        ## Problem
+
+        Nobody knows what to do.
+        """))
+        #expect(index.sections.map(\.name) == ["Introduction", "Problem"])
+        #expect(index.sections.map(\.level) == [1, 2])
+        // A heading is not spoken, counted, or highlighted: word 0 is still
+        // "Welcome", the two headings and the cue are none of the words, and
+        // the duration covers the four words of the opening plus the five of
+        // the problem — nine.
+        #expect(index.wordCount == 9)
+        // Each heading points at the first word *under* it.
+        #expect(index.sections.map(\.wordIndex) == [0, 4])
+    }
+
+    @Test func aHashtagIsStillAWord() {
+        // `#hashtag` has no space after the hashes, and `####` is deeper
+        // than three levels — neither is a heading, and both have to
+        // survive a round trip as the text the presenter typed.
+        let index = ScriptIndex(tokens: ScriptParser.parse("#hashtag stays\n#### four hashes stays"))
+        #expect(index.sections.isEmpty)
+        #expect(index.wordCount == 6)
+    }
+
+    @Test func sectionLookupIsByWord() {
+        let index = ScriptIndex(tokens: ScriptParser.parse("""
+        ## One
+        a b c
+        ## Two
+        d e
+        """))
+        #expect(index.section(containingWord: 0)?.name == "One")
+        #expect(index.section(containingWord: 2)?.name == "One")
+        #expect(index.section(containingWord: 3)?.name == "Two")
+        #expect(index.section(containingWord: 99)?.name == "Two")
+    }
+
+    @Test func anUnsectionedScriptHasNoSections() {
+        let index = ScriptIndex(tokens: ScriptParser.parse("Just some words."))
+        #expect(index.sectionCount == 0)
+        #expect(index.section(containingWord: 0) == nil)
+    }
+
+    @Test func aHeadingOpensItsOwnGroup() {
+        // The wall of text sections exist to prevent: a heading must not
+        // run on from the last line of the previous section.
+        let index = ScriptIndex(tokens: ScriptParser.parse("intro words\n## Next\nmore words"))
+        let groups = index.pageParagraphRows(page: 0, pageSize: 50, showCues: true)
+        #expect(groups.count == 3)
+        #expect(groups[1].count == 1)
+        #expect(groups[1][0].section?.name == "Next")
+    }
+}
+
+@Suite struct SectionInsertTests {
+    @Test func pushesTheSentenceDownAndLandsTheCaretInTheHeading() {
+        let plan = SectionInsert.plan(for: "Hello there", caret: 5)
+        #expect(plan.text == "## \nHello there")
+        #expect(plan.caret == 3)
+        #expect(plan.text.isEmpty == false)
+    }
+
+    @Test func reusesAnEmptyLineInsteadOfLeavingABlank() {
+        // The blank line the presenter just made *becomes* the heading,
+        // and its terminator is kept — so there is somewhere to write the
+        // section's body. Nothing is consumed: the caret ends on the marker
+        // with the blank line still there underneath.
+        let plan = SectionInsert.plan(for: "Intro line\n\n", caret: 11)
+        #expect(plan.text == "Intro line\n## \n\n")
+        #expect(plan.caret == 14)
+    }
+
+    @Test func keepsBlockIndentation() {
+        let plan = SectionInsert.plan(for: "  - nested", caret: 3, level: 3)
+        #expect(plan.text == "  ### \n  - nested")
+    }
+
+    @Test func midSentenceCaretStillKeepsTheWholeSentence() {
+        // The half-typed word must survive; a convenience button that eats
+        // what you were writing is worse than no button.
+        let plan = SectionInsert.plan(for: "The quick brown fox", caret: 10)
+        #expect(plan.text == "## \nThe quick brown fox")
+    }
+
+    @Test func clampsACaretOutsideTheText() {
+        #expect(SectionInsert.plan(for: "abc", caret: 99).caret == 3)
+        #expect(SectionInsert.plan(for: "abc", caret: -4).caret == 3)
+    }
+
+    @Test func theInsertedHeadingParsesOnceItHasAName() {
+        // Straight after the button, the line is "## " with nothing after
+        // it — not a heading yet, and it parses as the plain word "##",
+        // which is the right way to fail: the presenter's sentence is
+        // untouched and the line starts resolving the moment they type.
+        let fresh = SectionInsert.plan(for: "Some words here", caret: 0)
+        #expect(ScriptIndex(tokens: ScriptParser.parse(fresh.text)).sectionCount == 0)
+        #expect(ScriptIndex(tokens: ScriptParser.parse(fresh.text)).wordCount == 4)
+
+        // Type the name and it is a section, and the words are untouched.
+        let named = fresh.text.replacingOccurrences(of: "## ", with: "## Problem\n", options: [], range: fresh.text.startIndex..<fresh.text.index(fresh.text.startIndex, offsetBy: 3))
+        let index = ScriptIndex(tokens: ScriptParser.parse(named))
+        #expect(index.sections.map(\.name) == ["Problem"])
+        #expect(index.sections.map(\.wordIndex) == [0])
+        #expect(index.wordCount == 3)
+    }
+}
+
+@Suite struct ConsecutiveHeadingTests {
+    @Test func everyHeadingInARunIsRecognised() {
+        // The case that was broken: three heading lines in a row, no blank
+        // between them — the most ordinary way to type an outline.
+        let index = ScriptIndex(tokens: ScriptParser.parse("""
+        ## test
+        ## hello
+        ### deeper
+        """))
+        #expect(index.sections.map(\.name) == ["test", "hello", "deeper"])
+        #expect(index.sections.map(\.level) == [2, 2, 3])
+        // A heading-only script has no words at all, and must not claim
+        // any: nothing to speak, nothing to highlight.
+        #expect(index.wordCount == 0)
+    }
+
+    @Test func aHeadingFollowedByTextOnTheNextLineStillParses() {
+        let index = ScriptIndex(tokens: ScriptParser.parse("## Problem\nThe text follows."))
+        #expect(index.sections.map(\.name) == ["Problem"])
+        #expect(index.wordCount == 3)
+        #expect(index.sections.map(\.wordIndex) == [0])
+    }
+}

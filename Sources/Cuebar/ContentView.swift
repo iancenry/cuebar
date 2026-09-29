@@ -72,7 +72,8 @@ struct ContentView: View {
 
     var body: some View {
         HSplitView {
-            SidebarView(scripts: scripts, wordsPerSecond: engine.wordsPerSecond,
+            SidebarView(scripts: scripts, index: index, engine: engine,
+                        wordsPerSecond: engine.wordsPerSecond,
                         onPick: pick, onNew: {
                             pick(scripts.add().id)
                         },
@@ -175,6 +176,7 @@ struct ContentView: View {
                 EditView(doc: doc, index: index,
                          wordsPerSecond: engine.wordsPerSecond,
                          folderPath: scripts.folderName(doc.folderID),
+                         wordsPerMinute: settings.settings.wordsPerMinute,
                          onRename: { scripts.rename(doc.id, title: $0) },
                          draftBody: $draftBody,
                          onBodyCommitted: { commit($0, for: doc.id) })

@@ -87,6 +87,10 @@ struct TokenPageView: View {
                             if let cue = row.cue {
                                 CueBadge(cue: cue, settings: settings, fontSize: fontSize)
                             }
+                        case .section:
+                            SectionHeading(name: row.section?.name ?? "",
+                                            level: row.section?.level ?? 2,
+                                            fontSize: fontSize)
                         case .paragraphBreak:
                             EmptyView()
                         }
@@ -193,5 +197,35 @@ struct WordPill: View {
         .tracking(tracking)
         .accessibilityLabel(word)
         .accessibilityAddTraits(isCurrent ? .isSelected : [])
+    }
+}
+
+/// A section heading in the reading surface. Quiet on purpose — it is a
+/// landmark, not a thing to read — but never silent: a script read from
+/// across a room needs to show where it is.
+struct SectionHeading: View {
+    let name: String
+    let level: Int
+    let fontSize: Double
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Level is used rather than discarded: `#` is a major break and
+            // `###` a minor one, so the reader's eye finds the big ones
+            // first from across a room. A rule always follows, so the depth
+            // is carried by weight and rule opacity instead of by size —
+            // the words underneath are already large enough.
+            Text(name.uppercased())
+                .font(.system(size: max(9, fontSize * (level <= 1 ? 0.46 : 0.40)),
+                              weight: level <= 1 ? .bold : .semibold))
+                .tracking(level <= 1 ? 1.4 : 0.9)
+                .foregroundStyle(CuePalette.ink.opacity(level <= 1 ? 0.85 : 0.6))
+            Rectangle()
+                .fill(CuePalette.hairline.opacity(level <= 1 ? 1.0 : 0.6))
+                .frame(height: level <= 1 ? 1 : 0.5)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, level <= 1 ? fontSize * 0.9 : fontSize * 0.5)
+        .padding(.bottom, fontSize * 0.2)
     }
 }

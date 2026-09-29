@@ -36,10 +36,15 @@ public enum ReadingWindow: Sendable {
         public let token: ScriptToken
         public let wordIndex: Int
         public let cue: ScriptCue?
-        public init(token: ScriptToken, wordIndex: Int, cue: ScriptCue? = nil) {
+        /// Set only for a heading, so the renderer can draw it as one
+        /// without re-interpreting the token.
+        public let section: ScriptSection?
+        public init(token: ScriptToken, wordIndex: Int, cue: ScriptCue? = nil,
+                    section: ScriptSection? = nil) {
             self.token = token
             self.wordIndex = wordIndex
             self.cue = cue
+            self.section = section
         }
     }
 
@@ -97,6 +102,17 @@ public enum ReadingWindow: Sendable {
         let total = Int((Double(wordCount) / wordsPerSecond).rounded())
         if total < 60 { return "\(total) sec" }
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    /// `m:ss` (or `h:mm:ss`), the shape a presenter's timeline needs.
+    /// `durationString` is the compact form for a row beside a script —
+    /// it collapses under a minute to "17 sec", which is right there and
+    /// wrong on a timeline where 0:00 is the interesting value.
+    public static func clockString(seconds: Double) -> String {
+        guard seconds.isFinite, seconds > 0 else { return "0:00" }
+        let total = Int(seconds.rounded())
+        if total < 3600 { return String(format: "%d:%02d", total / 60, total % 60) }
+        return String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
     }
 
     // MARK: - Cues

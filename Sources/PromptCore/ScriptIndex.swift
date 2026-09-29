@@ -17,6 +17,12 @@ public struct ScriptIndex: Sendable, Equatable {
     /// What the cues do — holds, auto-pauses and jump targets.
     public let cuePlan: ReadingWindow.CuePlan
 
+    /// Every section heading, in script order, with the word each one
+    /// starts at. Collected in the same pass as everything else, because
+    /// the alternative is a second walk of the script to find headings —
+    /// and the prompter re-renders on every word change.
+    public let sections: [ScriptSection]
+
     /// The interpreted cue at each token index (nil for words and breaks).
     /// A badge used to parse its own string — twice — on every render, and
     /// the prompter re-renders on every word change.
@@ -27,6 +33,7 @@ public struct ScriptIndex: Sendable, Equatable {
 
         var words: [Int] = []
         words.reserveCapacity(tokens.count)
+        var sections: [ScriptSection] = []
         var interpreted: [ScriptCue?] = []
         interpreted.reserveCapacity(tokens.count)
         var plan = ReadingWindow.CuePlan()
@@ -55,6 +62,11 @@ public struct ScriptIndex: Sendable, Equatable {
                 interpreted.append(nil)
                 lastWord = wordCount
                 wordCount += 1
+            } else if case .section(let name, let level) = token {
+                // Headings carry no words, so `wordCount` is still the
+                // first word *under* this one.
+                sections.append(ScriptSection(name: name, level: level, wordIndex: wordCount))
+                interpreted.append(nil)
             } else if case .cue(let raw) = token {
                 // Adjacent cues share one jump target, but each still
                 // contributes its own behaviour.
@@ -81,12 +93,33 @@ public struct ScriptIndex: Sendable, Equatable {
             }
         }
         wordTokenIndices = words
+        self.sections = sections
         cues = interpreted
         cuePlan = plan
     }
 
     public var isEmpty: Bool { tokens.isEmpty }
     public var wordCount: Int { wordTokenIndices.count }
+    public var sectionCount: Int { sections.count }
+
+    /// The section a given word sits under. Binary search: the prompter
+    /// asks this on every word change.
+    public func section(containingWord word: Int) -> ScriptSection? {
+        guard !sections.isEmpty else { return nil }
+        var lo = 0
+        var hi = sections.count - 1
+        var found: ScriptSection?
+        while lo <= hi {
+            let mid = (lo + hi) / 2
+            if sections[mid].wordIndex <= word {
+                found = sections[mid]
+                lo = mid + 1
+            } else {
+                hi = mid - 1
+            }
+        }
+        return found
+    }
 
     public func pageCount(pageSize: Int) -> Int {
         ReadingWindow.pageCount(wordCount: wordCount, pageSize: pageSize)
@@ -136,6 +169,12 @@ public struct ScriptIndex: Sendable, Equatable {
             let token = tokens[i]
             if token.isParagraphBreak {
                 groups.append([])
+            } else if case .section(let name, let level) = token {
+                // Its own group, and never merged into the paragraph above:
+                // a heading that ran on from the last line of the previous
+                // section is exactly the wall of text sections exist to stop.
+                groups.append([ReadingWindow.TokenRow(token: token, wordIndex: -1,
+                                                      cue: nil, section: ScriptSection(name: name, level: level, wordIndex: wordIndex))])
             } else if token.isCue, !showCues {
                 continue
             } else if case .cue(let raw) = token {

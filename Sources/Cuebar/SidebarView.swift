@@ -13,6 +13,8 @@ import PromptCore
 /// rail is for.
 struct SidebarView: View {
     @Bindable var scripts: ScriptStore
+    var index: ScriptIndex
+    @Bindable var engine: PromptEngine
     var wordsPerSecond: Double
     var onPick: (UUID) -> Void
     var onNew: () -> Void
@@ -338,6 +340,65 @@ struct SidebarView: View {
                         onDelete: { scripts.delete(doc.id) }
                     )
                 }
+            }
+            if !index.sections.isEmpty { sectionTimeline }
+        }
+    }
+
+    /// The open script's sections, with the time each one starts.
+    ///
+    /// Only the *open* script's: a section list is a property of one
+    /// document, so showing every script's sections at once would put
+    /// timestamps beside scripts that have nothing to do with them. Hidden
+    /// for All Scripts, where there is no single document to be inside of.
+    private var sectionTimeline: some View {
+        let current = engine.currentWordIndex ?? 0
+        let currentSection = index.section(containingWord: current)?.wordIndex
+        return VStack(alignment: .leading, spacing: 1) {
+            Divider().padding(.vertical, 8).padding(.horizontal, 10)
+            HStack(spacing: 6) {
+                Text("Sections")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(CuePalette.ink.opacity(0.75))
+                Spacer()
+            }
+            .padding(.leading, NavRow.iconInset)
+            .padding(.trailing, 8)
+            .padding(.bottom, 3)
+
+            ForEach(index.sections) { section in
+                let active = section.wordIndex == currentSection
+                let stamp = ReadingWindow.clockString(
+                    seconds: Double(section.wordIndex) / wordsPerSecond)
+                Button {
+                    engine.jumpTo(wordIndex: section.wordIndex)
+                } label: {
+                    HStack(spacing: 6) {
+                        // Markdown's levels, used: `#` is a top-level
+                        // landmark and carries more weight, `###` sits under
+                        // whatever is above it. Indent plus weight, so the
+                        // outline reads as a shape rather than a flat list
+                        // of equal rows.
+                        Text(section.name)
+                            .font(.callout.weight(
+                                active ? .semibold
+                                       : (section.level <= 1 ? .medium : .regular)))
+                            .foregroundStyle(active ? CuePalette.peach : CuePalette.ink.opacity(0.9))
+                            .lineLimit(1)
+                        Spacer()
+                        Text(stamp)
+                            .font(.caption).monospacedDigit()
+                            .foregroundStyle(CuePalette.inkMuted)
+                    }
+                    .padding(.leading, NavRow.iconInset + CGFloat(section.level - 1) * 8)
+                    .padding(.trailing, 10)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .background(active ? CuePalette.selection : .clear,
+                            in: RoundedRectangle(cornerRadius: 6))
+                .accessibilityLabel("\(section.name), \(stamp)")
             }
         }
     }

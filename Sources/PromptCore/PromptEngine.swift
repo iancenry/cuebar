@@ -463,6 +463,11 @@ public final class PromptEngine {
                 wi += 1
             case .paragraphBreak:
                 afterBreak = true
+            case .section:
+                // A heading opens a section, so the next word starts a
+                // paragraph — otherwise the first line of "## Problem" ran
+                // straight on from the heading of the section before it.
+                afterBreak = true
             case .cue:
                 break
             }

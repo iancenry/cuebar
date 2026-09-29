@@ -49,6 +49,10 @@ struct ReadingPreview: View {
                                     if let cue = row.cue {
                                         CueBadge(cue: cue, settings: settings, fontSize: fontSize)
                                     }
+                                case .section:
+                                    SectionHeading(name: row.section?.name ?? "",
+                                                    level: row.section?.level ?? 2,
+                                                    fontSize: fontSize)
                                 case .paragraphBreak:
                                     EmptyView()
                                 }
