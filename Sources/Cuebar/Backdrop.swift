@@ -9,14 +9,37 @@ import AppKit
 /// smooth colour fields, and this gets its depth from *structure* behind the
 /// blur. A portrait crop suits the rail's ~0.27 aspect.
 ///
-/// **This is Nintendo's Kirby, and it is here for local use only.** It is
-/// not ours to ship, so it has to be replaced with something licensed for
-/// distribution before Cuebar goes to anyone else. A generated replacement
-/// was tried and rejected: it came out a plainer brown smudge with a visible
-/// vignette edge, where this has a subject, a palette and a texture that
-/// survive the 13pt blur. If it does get replaced, judge the candidate
-/// *through* that blur — a 1/8-scale render blurred and restored is a good
-/// stand-in — and don't let a substitute in without being shown it first.
+/// **Provenance: unknown, and not ours.** This is a painting of clouds with
+/// a character in it, found on Pinterest; the artist is not known and their
+/// permission has not been asked for. An earlier version of this note
+/// claimed the artwork was Nintendo's, which was a guess made from the
+/// character rather than anything known about where the picture came from —
+/// wrong, and worth correcting rather than leaving in the source.
+///
+/// The distinction matters for what to do next. If the figure is a
+/// trademarked character, that is a question about *that character* and
+/// belongs to whoever owns it; the painting around it is a separate work by
+/// a separate person. Either way the practical position is the same and is
+/// the only part worth acting on: nobody has established the right to
+/// redistribute it, so it is fine on this Mac and has to be replaced — or
+/// permission obtained from the artist — before Cuebar goes to anyone else.
+///
+/// Replacing it with something drawn by `Scripts/inpaint.swift`-style
+/// tooling, or a public-domain painting, or asking the artist, are all
+/// reasonable; guessing twice is not.
+///
+/// The figure itself was removed by `Scripts/inpaint.swift`, so what is
+/// displayed is the painting's sky. That does not make the painting ours.
+/// The removal is worth recording because "just blur it out" is not what
+/// worked, twice: a plain hole filled smoothly reads as a smudge, and adding
+/// texture from elsewhere in the painting did nothing, because this painting
+/// is soft enough that its high frequencies are a couple of levels. What
+/// worked was a harmonic fill for continuity at the edges plus a *paste* of
+/// real cloud for the shapes, colour-matched to the ring around the hole and
+/// blended over a wide band. The script takes the same command line, and
+/// judging the result means blurring it first — at the 13pt this view
+/// applies, the repair is invisible, and at full resolution there is a faint
+/// soft vertical seam on the right of the hole that nobody will ever see.
 ///
 /// Decoded once rather than per render: both the rail and the editor
 /// re-render on every hover and keystroke, and re-decoding a JPEG each
