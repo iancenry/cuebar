@@ -23,6 +23,10 @@ enum PreviewHelper {
     static func globalHotkeys(for settings: SettingsStore) -> GlobalHotkeys {
         GlobalHotkeys(settings: settings)
     }
+
+    /// A disarmed remote, so the preview shows the "nothing to connect to
+    /// yet" state rather than a live server in the preview canvas.
+    @MainActor static let remote = RemoteController()
 }
 
 #Preview("Prompter") {
@@ -39,6 +43,7 @@ enum PreviewHelper {
     @Previewable @State var settings = SettingsStore(inMemory: CueSettings())
     let center = PreviewHelper.hotkeys(for: settings)
     return SettingsView(settings: settings, hotkeys: center,
-                        globalHotkeys: PreviewHelper.globalHotkeys(for: settings))
+                        globalHotkeys: PreviewHelper.globalHotkeys(for: settings),
+                        remote: PreviewHelper.remote)
         .frame(width: 560, height: 540)
 }

@@ -62,6 +62,17 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
     <string>Cuebar uses speech recognition to follow your reading position.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Cuebar uses the microphone to track your voice for scrolling.</string>
+    <!-- The phone remote. macOS 15 gates local-network *advertising*
+         behind this key, and without it the listener never becomes
+         ready, so the address in Settings would simply never appear.
+         The wording states the two things a user is actually being asked
+         to allow: a server, and the fact that it is not always on. -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Cuebar serves the phone remote for your prompter on this network, and only while the prompter is showing.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_cuebar._tcp</string>
+    </array>
 </dict>
 </plist>
 PLIST

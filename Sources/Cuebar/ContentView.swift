@@ -22,6 +22,7 @@ struct ContentView: View {
     @Bindable var hotkeys: HotkeyCenter
     @Bindable var globalHotkeys: GlobalHotkeys
     let app: AppCommandBridge
+    @Bindable var remote: RemoteController
     @State private var mode: PerformMode = .perform
     @State private var follow = true
     @State private var windowState = WindowState()
@@ -29,6 +30,10 @@ struct ContentView: View {
     /// fullscreen centring is derived from it.
     @State private var sidebarWidth: CGFloat = 240
     @State private var sharing = SharingGuard()
+    // The remote is owned by the app so the settings scene can show its
+    // URL. It is armed by the prompter overlay rather than by a setting:
+    // a server that can move a live talk has no business listening while
+    // the app is just sitting there.
 
     /// Whatever the mode shows, edge to edge. Split out of `body` because
     /// the overlay, the transport dock and the editor together made one
@@ -130,6 +135,10 @@ struct ContentView: View {
             // The global key tap needs both collaborators, and neither
             // exists at App-init time.
             globalHotkeys.attach(hotkeys: hotkeys, overlay: overlay)
+            // Reopening the window with the prompter already up must not
+            // leave the remote disarmed: `onChange` only sees edges, and
+            // `arm` is idempotent, so asking again is free.
+            if overlay.isShowing { armRemote() }
 
             sharing.setHidden(settings.settings.hideFromShare)
             // Persisted prefs are the source of truth; the engine starts live.
@@ -146,10 +155,25 @@ struct ContentView: View {
             }
             showDraft(doc)
         }
+        .onChange(of: overlay.isShowing) { _, showing in
+            if showing { armRemote() } else { remote.disarm() }
+        }
         .onChange(of: index) { _, new in
             // One index drives the open panel: pages, cues and the empty
             // check all come from it, so a re-render never re-parses.
             if overlay.isShowing { overlay.update(index: new) }
+            // The remote captured `$index` when it armed, and a binding
+            // outlives the view pass that made it. Re-arm so the phone pages
+            // the script you have now, not the one from when you opened it.
+            if overlay.isShowing { armRemote() }
+        }
+        .onChange(of: follow) { _, _ in
+            // Same reason, and this one was visible: the phone's Follow
+            // light never moved, because the binding the remote held had
+            // been left behind by a re-created `@State` box while the
+            // dispatcher's context was still writing the live one. Toggles
+            // worked, the display lied. Re-arming re-captures the live one.
+            if overlay.isShowing { armRemote() }
         }
         .onChange(of: overlay.isShowing) { _, _ in
             // The global tap only runs while presenting.
@@ -208,6 +232,53 @@ struct ContentView: View {
 
     /// `scripts.select` publishes the change, and the `onChange` above does
     /// the load — loading here too would parse and index the script twice.
+    /// Start the remote for as long as the prompter is up. The state and
+    /// the commands both come from here, so a remote button lands in the
+    /// same place a key press would.
+    private func armRemote() {
+        // `$index` and `$follow`, **not the values**. Both closures below
+        // outlive this call, and a value captured here is frozen at the
+        // moment the prompter opened: the phone's follow light and its
+        // section pager were reading a stale copy while the engine — a
+        // class, so genuinely live — made position and speed look correct
+        // and hid it. A binding reads through to the current value.
+        let index = $index
+        let follow = $follow
+        remote.arm(
+            state: {
+                RemoteSnapshot(title: scripts.selected?.title ?? "", engine: engine,
+                               index: index.wrappedValue,
+                               isFollowing: follow.wrappedValue,
+                               isMicMuted: voice.isMutedByUser)
+            },
+            // No `[weak self]`: ContentView is a struct, and the controller
+            // is owned by it, so the closure's lifetime is the view's. A
+            // remote request cannot outlive the window that armed it.
+            perform: { command in
+                switch command {
+                case .action(let action):
+                    // The existing dispatcher, so a rebind in Settings
+                    // changes the phone's buttons too.
+                    hotkeys.perform(action)
+                case .scrub(let fraction):
+                    let snapshot = RemoteSnapshot(title: "", engine: engine,
+                                                  index: index.wrappedValue)
+                    engine.jumpTo(wordIndex: snapshot.wordIndex(forProgress: fraction))
+                case .sectionOffset(let step):
+                    jumpSection(by: step, in: index.wrappedValue)
+                }
+            })
+    }
+
+    /// Next or previous section. The arithmetic lives in the snapshot, so
+    /// the greyed-out pager on the phone and this press are the same
+    /// question asked twice.
+    private func jumpSection(by step: Int, in index: ScriptIndex) {
+        let snapshot = RemoteSnapshot(title: "", engine: engine, index: index)
+        guard let target = snapshot.wordIndexForSection(offset: step, in: index) else { return }
+        engine.jumpTo(wordIndex: target)
+    }
+
     private func pick(_ id: UUID) {
         scripts.select(id)
     }

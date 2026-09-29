@@ -1,8 +1,10 @@
 import SwiftUI
+import AppKit
 import PromptCore
 
 struct DisplayTab: View {
     @Bindable var settings: SettingsStore
+    @Bindable var remote: RemoteController
 
     var body: some View {
         SettingsTab {
@@ -81,6 +83,34 @@ struct DisplayTab: View {
                         settings.settings.floatingOriginY = nil
                     }
                 }
+            }
+            SettingsSection(title: "Phone Remote") {
+                if let url = remote.url {
+                    SettingRow(label: "Address") {
+                        HStack(spacing: 6) {
+                            Text(url)
+                                .font(.caption)
+                                .textSelection(.enabled)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(url, forType: .string)
+                            } label: {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.caption)
+                                    .foregroundStyle(CuePalette.inkMuted)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Copy address")
+                        }
+                    }
+                    SettingsCaption(text: "Open it in Safari on a phone on the same network. The address changes every time — the old one stops working the moment the prompter comes down.")
+                } else {
+                    SettingsCaption(text: "Nothing to connect to yet. Pop the prompter out (⌥O) and the remote comes up while it is showing.")
+                }
+                SettingsCaption(text: "A server on this network can move a live talk, so it only listens while the prompter is up, and the address is never advertised.")
             }
             HStack {
                 Spacer()

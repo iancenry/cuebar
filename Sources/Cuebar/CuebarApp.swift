@@ -17,6 +17,11 @@ struct CuebarApp: App {
     @State private var showingCuePalette = false
     @State private var hotkeys: HotkeyCenter
     @State private var globalHotkeys: GlobalHotkeys
+    /// Phone remote. App-level rather than owned by the main window,
+    /// because the one place a presenter reads the URL is Settings, and a
+    /// controller the settings scene cannot see is a controller they cannot
+    /// use.
+    @State private var remote = RemoteController()
 
     init() {
         FontLoader.register()
@@ -42,7 +47,8 @@ struct CuebarApp: App {
             ContentView(engine: engine, scripts: scripts, settings: settings,
                         draftBody: $draftBody, tokens: $tokens, index: $index,
                         overlay: overlay, voice: voice, hotkeys: hotkeys,
-                        globalHotkeys: globalHotkeys, app: appBridge)
+                        globalHotkeys: globalHotkeys, app: appBridge,
+                        remote: remote)
                 .frame(minWidth: 1080, minHeight: 660)
                 // Camera-facing dark prompter: the palette is tuned for
                 // dark surfaces, so the app never follows Light Mode
@@ -89,7 +95,8 @@ struct CuebarApp: App {
             }
         }
         Settings {
-            SettingsView(settings: settings, hotkeys: hotkeys, globalHotkeys: globalHotkeys)
+            SettingsView(settings: settings, hotkeys: hotkeys, globalHotkeys: globalHotkeys,
+                         remote: remote)
                 .frame(width: 680, height: 700)
                 .preferredColorScheme(.dark)
         }

@@ -6,10 +6,11 @@ struct SettingsView: View {
     @Bindable var settings: SettingsStore
     @Bindable var hotkeys: HotkeyCenter
     @Bindable var globalHotkeys: GlobalHotkeys
+    @Bindable var remote: RemoteController
 
     var body: some View {
         TabView {
-            DisplayTab(settings: settings)
+            DisplayTab(settings: settings, remote: remote)
                 .tabItem { Label("Display", systemImage: "rectangle.on.rectangle") }
             TypographyTab(settings: settings)
                 .tabItem { Label("Typography", systemImage: "textformat") }

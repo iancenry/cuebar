@@ -67,6 +67,17 @@ and ad-hoc signs it.
   always use the block-based pull converter. Taps are installed once per session
   (Legacy recycles swap only the request via a lock-guarded box); converter input
   format must equal the pinned tap format.
+- **A `@Sendable` closure is not an isolation guarantee**: Swift 6 lets a
+  callback written inside a `@MainActor` method *type-check* as if it ran
+  on the main actor, but a framework that owns the callback (Network,
+  AppKit, an ObjC completion) runs it on its own queue. Calling into
+  `@MainActor` state from the body is a runtime trap, not a compile error:
+  the phone remote's `NWConnection.receive` handler built
+  `state()` → `ScriptStore.selected` off-actor and died with
+  `EXC_BREAKPOINT` (SIGTRAP), taking the prompter down mid-talk. Every
+  framework callback that reaches app state must hop explicitly —
+  `Task { @MainActor in … }` — even where the compiler says it is already
+  isolated. Same family as the ticker bug below.
 - **Swift 6.2 runtime bug**: `MainActor.assumeIsolated` crashes (SIGBUS) when
   called from a run-loop context with no task. The ticker is a MainActor
   `Task` loop — do not reintroduce `Timer` + `assumeIsolated`.
@@ -146,6 +157,17 @@ and ad-hoc signs it.
   presenter asked to stop *listening*, not to stop reading. `VoiceTracker.start`
   is async: it re-checks the mute (and `Task.isCancelled`) after every await,
   or a mute during an on-device model download leaves a live capture behind.
+- **The phone remote is a server, so it is armed only while the prompter is
+  up** (`ContentView.armRemote` on the overlay edge, `disarm` on the way
+  down), and its authority is a six-hex token that is *not* put in the
+  Bonjour TXT record — advertising it would hand the remote to every
+  device on the venue wifi. `NSLocalNetworkUsageDescription` +
+  `NSBonjourServices` are in the packaging script: without them the
+  listener never becomes ready on macOS 15+, so the address in Settings
+  would simply never appear. The request parser and the page's whole
+  command vocabulary live in `PromptCore` (`RemoteHTTP`, `RemoteSnapshot`)
+  and are tested, because an unparsed request must be *refused*, never
+  guessed at.
 - **Parse once, index once**: `ScriptIndex` is built next to `tokens` in one
   place (`ContentView.adopt`) and read by the prompter, the driver, the
   overlay and the dispatcher. It is the only implementation of the cue
