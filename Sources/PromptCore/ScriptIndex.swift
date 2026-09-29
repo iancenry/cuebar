@@ -78,6 +78,18 @@ public struct ScriptIndex: Sendable, Equatable {
                 } else if ReadingWindow.isPauseCue(cue), cue.seconds == nil {
                     pendingPause = true
                 }
+                // A slide cue is an instruction rather than a direction, so
+                // it lands in the plan as a trigger keyed by the word it
+                // introduces — the same place a hold would go, which is why
+                // it fires as the reader arrives rather than as they leave.
+                // Bare `[slide]` advances the deck by one; `[slide 4]` names
+                // a slide. Both are triggers, because a bare slide cue that
+                // quietly did nothing is a worse trap than a wrong slide.
+                if cue.kind == .slide {
+                    plan.slideCueCount += 1
+                    plan.triggers[wordCount] = cue.slideNumber
+                        .map(ReadingWindow.CueTrigger.goto) ?? .advance
+                }
             } else {
                 interpreted.append(nil)
             }

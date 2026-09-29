@@ -29,6 +29,16 @@ public struct ScriptCue: Equatable, Sendable {
     /// Display text without brackets, as written ("pause 2s").
     public let label: String
 
+    /// The slide number in a `[slide 4]` cue. `nil` for a bare `[slide]`,
+    /// which means "advance one" rather than "go nowhere".
+    public var slideNumber: Int? {
+        guard kind == .slide else { return nil }
+        for part in label.split(separator: " ").dropFirst() {
+            if let number = Int(part), number > 0 { return number }
+        }
+        return nil
+    }
+
     public init(kind: Kind, seconds: TimeInterval?, label: String) {
         self.kind = kind
         self.seconds = seconds

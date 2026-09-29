@@ -20,6 +20,9 @@ struct PlaybackDriver: View {
     /// second, and as `@State` on the view every write invalidated
     /// `PlaybackDriver.body` (nine modifiers) to redraw a zero-size view.
     @State private var tickState = TickState()
+    /// Where a crossed `[slide N]` goes. Owned here because the tick is:
+    /// the prompter must not stall on a third-party app that may not answer.
+    private let slideSync = SlideSync()
     @State private var smartPause = SmartPauseState()
     /// Voice polling cadence: the VAD and level history were designed
     /// around ~8 Hz, and polling at the 60 Hz ticker rate republished
@@ -44,6 +47,8 @@ struct PlaybackDriver: View {
     final class TickState {
         var last: Date?
         var voicePollAccumulator: Double = 0
+        /// Highest word index whose slide cues have been handed over.
+        var lastTriggerWord = -1
         /// Last reading position seen, to spot a jump backwards. Kept in
         /// the tick box, not @State: this runs 60 times a second and the
         /// value only exists to be compared with the next tick.
@@ -213,6 +218,8 @@ struct PlaybackDriver: View {
         if position < tickState.lastWord { voice.abandonTranscript() }
         tickState.lastWord = position
 
+        fireCueTriggers()
+
         let guidance = settings.settings.guidance
         let speaking = voice.isSpeaking
 
@@ -270,6 +277,24 @@ struct PlaybackDriver: View {
                 engine.tick(delta)
             }
         }
+    }
+
+    /// Hand the crossed slide cues to the sync layer, once, in order.
+    ///
+    /// A high-water mark rather than "the last one": a backwards jump must
+    /// not re-fire everything the presenter rewound past — a re-read of
+    /// slide 2 would drive the deck back to 2 while they are still talking
+    /// about 5. A forward jump *does* fire, because after it the deck and
+    /// the script genuinely disagree and the deck is the thing that should
+    /// be corrected.
+    private func fireCueTriggers() {
+        guard !index.cuePlan.triggers.isEmpty else { return }
+        let here = engine.currentWordIndex ?? 0
+        guard here != tickState.lastTriggerWord else { return }
+        let crossed = index.cuePlan.triggers(from: tickState.lastTriggerWord, to: here)
+        tickState.lastTriggerWord = here
+        guard !crossed.isEmpty else { return }
+        slideSync.perform(crossed)
     }
 
     /// True when the recognizer produced text recently — the only proof of

@@ -113,6 +113,11 @@ struct EditView: View {
                     Text("·")
                     Text("\(cueCount) cue\(cueCount == 1 ? "" : "s")")
                 }
+                let slides = index.cuePlan.slideCueCount
+                if slides > 0 {
+                    Text("·")
+                    Text("\(slides) slide\(slides == 1 ? "" : "s")")
+                }
                 Spacer()
                 Text("⌘K cues")
                 Text("·")

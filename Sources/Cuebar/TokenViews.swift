@@ -114,6 +114,21 @@ struct CueBadge: View {
 
     private var text: String { cue.label }
 
+    /// A slide cue is an instruction, not a stage direction, so it reads
+    /// as a destination — "SLIDE 4", upright and boxed like a slide — where
+    /// every other badge is a note to the presenter. It also stays on screen
+    /// as the honest record of what the deck *should* be showing, whether or
+    /// not anything moved it.
+    private var isInstruction: Bool { cue.kind == .slide }
+
+    /// "SLIDE" for the bare form, "SLIDE 4" when a slide is named. A
+    /// right-pointing arrow on the bare form is the whole difference
+    /// between "advance the deck" and "here is a number" — worth the glyph.
+    private var instructionText: String {
+        guard isInstruction else { return text }
+        return cue.slideNumber.map { "SLIDE \($0)" } ?? "SLIDE →"
+    }
+
     private var icon: String? {
         switch cue.kind {
         case .pause: return "pause.fill"
@@ -132,20 +147,34 @@ struct CueBadge: View {
     }
 
     var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 4) {
             if let icon {
                 Image(systemName: icon)
                     .font(settings.fontFamily.font(size: fontSize * 0.55, weight: .semibold))
             }
-            Text(text)
-                .font(settings.fontFamily.font(size: fontSize * 0.72, weight: .semibold).italic())
+            if isInstruction {
+                // The font helper takes no italic — `Font.italic()` on a
+                // built size is macOS 26+ — so the instruction is set in the
+                // caps its text already carries, and every other badge keeps
+                // the italic it has always had.
+                Text(instructionText)
+                    .font(settings.fontFamily.font(size: fontSize * 0.62, weight: .bold))
+                    .tracking(0.8)
+            } else {
+                Text(text)
+                    .font(settings.fontFamily.font(size: fontSize * 0.72, weight: .semibold).italic())
+            }
         }
         .foregroundStyle(settings.cueColor.color)
         .padding(.horizontal, 10)
         .padding(.vertical, 3)
         .background(settings.cueColor.color.opacity(settings.cueBrightness.badgeOpacity),
-                    in: Capsule())
-        .help("Stage cue — timed cues hold playback automatically")
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .help(isInstruction
+              ? (cue.slideNumber == nil
+                 ? "Advance the deck one slide here"
+                 : "Go to slide \(cue.slideNumber ?? 0) here")
+              : "Stage cue — timed cues hold playback automatically")
     }
 }
 

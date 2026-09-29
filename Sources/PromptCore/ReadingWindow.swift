@@ -117,6 +117,34 @@ public enum ReadingWindow: Sendable {
 
     // MARK: - Cues
 
+    /// Something a cue asks the *app* to do when the reading position
+    /// reaches it.
+    ///
+    /// Distinct from a hold or a pause: nothing here stops the prompter. It
+    /// says "the deck should be on 4 by now". PromptCore owns *when* and
+    /// stays ignorant of Keynote, PowerPoint or anything else — the app
+    /// layer decides what a trigger means, which is why this is a value and
+    /// not a closure.
+    public enum CueTrigger: Equatable, Sendable {
+        /// `[slide]` — move the deck on by one. The bare form is the one
+        /// people actually write, and it is the one that survives editing:
+        /// numbering every slide means inserting a slide at the front
+        /// silently invalidates every number in the script, and nobody
+        /// re-numbers a deck they have already rehearsed.
+        case advance
+        /// `[slide 4]` — go to a specific slide, for a deck that has to be
+        /// driven to an exact place (rehearsing a late change, jumping back
+        /// to a section).
+        case goto(Int)
+
+        public var label: String {
+            switch self {
+            case .advance: return "SLIDE"
+            case .goto(let n): return "SLIDE \(n)"
+            }
+        }
+    }
+
     /// Everything the cue system needs about a script, in one pass and one
     /// `ScriptCue.interpret` per cue. Three families used to be derived
     /// independently and they disagreed: a direction cue between `[pause 2s]`
@@ -130,7 +158,46 @@ public enum ReadingWindow: Sendable {
         public var pauses: Set<Int> = []
         /// Every cue target, ascending — where Next/Previous Cue jump to.
         public var indices: [Int] = []
+        /// Word index → something the app should do on arrival. Keyed like
+        /// the holds, so a `[slide 4]` fires at the first word under it.
+        public var triggers: [Int: CueTrigger] = [:]
         public var isEmpty: Bool { indices.isEmpty }
+
+        /// Triggers crossed by a move from one word to another, in script
+        /// order.
+        ///
+        /// Pure arithmetic, so the "when" is testable without an app and
+        /// without a presenter. The caller keeps the high-water mark: a
+        /// backwards jump re-arms nothing, and a jump *forward* reports
+        /// everything it passed, because after that jump the deck and the
+        /// script are genuinely out of step and the deck is what should be
+        /// corrected.
+        public func triggers(from oldWord: Int, to newWord: Int) -> [CueTrigger] {
+            guard newWord > oldWord else { return [] }
+            return triggers
+                .filter { $0.key > oldWord && $0.key <= newWord }
+                .sorted { $0.key < $1.key }
+                .map(\.value)
+        }
+
+        /// How many slide cues the script *carries*, counted as they were
+        /// parsed — not the size of `triggers`.
+        ///
+        /// Those differ, and it showed: two `[slide]` cues in a script with
+        /// no words both sit at word 0, so the dictionary held one entry
+        /// and the editor reported "1 slide" for two. One trigger per
+        /// position is right for *firing* — a cue fires when you arrive —
+        /// but the count has to come from the cues, so the parse counts
+        /// them as it goes.
+        public var slideCueCount: Int = 0
+
+        /// Every absolute slide target, ascending and deduped.
+        public var slideNumbers: [Int] {
+            Set(triggers.values.compactMap {
+                if case .goto(let n) = $0 { return n }
+                return nil
+            }).sorted()
+        }
     }
 
     /// Thin readers over `ScriptIndex`, which owns the one implementation.

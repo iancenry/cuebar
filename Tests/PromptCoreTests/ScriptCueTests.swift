@@ -70,3 +70,79 @@ import PromptCore
         #expect(ScriptCue.iconName(for: "[whatever]") == "tag")
     }
 }
+
+@Suite struct SlideCueTests {
+    @Test func aSlideNumberIsParsedOnlyFromARealOne() {
+        #expect(ScriptCue.interpret("[slide 4]").slideNumber == 4)
+        #expect(ScriptCue.interpret("[SLIDE 12]").slideNumber == 12)
+        // A bare direction, and a zero, are both "no slide" — a deck must
+        // never be sent to slide 0 because someone typed it.
+        #expect(ScriptCue.interpret("[slide]").slideNumber == nil)
+        #expect(ScriptCue.interpret("[slide next]").slideNumber == nil)
+        #expect(ScriptCue.interpret("[slide 0]").slideNumber == nil)
+        #expect(ScriptCue.interpret("[smile]").slideNumber == nil)
+        #expect(ScriptCue.interpret("[pause 2s]").slideNumber == nil)
+    }
+
+    @Test func aBareSlideCueAdvancesRatherThanDoingNothing() {
+        // The whole point: `[slide]` is what people type, and a bare slide
+        // cue that quietly rendered like any other direction was a trap —
+        // it looked like it worked and did nothing.
+        let index = ScriptIndex(tokens: ScriptParser.parse("Welcome. [slide] Next. [slide 4]"))
+        #expect(index.cuePlan.slideCueCount == 2)
+        #expect(index.cuePlan.triggers[1] == .advance)
+        #expect(index.cuePlan.slideNumbers == [4])
+    }
+
+    @Test func slideCuesBecomeTriggersAtTheWordTheyIntroduce() {
+        let index = ScriptIndex(tokens: ScriptParser.parse("""
+        Welcome to the show. [slide 2]
+
+        Now the problem. [slide 3]
+        """))
+        let plan = index.cuePlan
+        #expect(plan.slideNumbers == [2, 3])
+        // "Welcome to the show." is words 0-3, so `[slide 2]` belongs to
+        // word 4 — the first word of the next paragraph. The change is
+        // keyed to the words *under* it, which is what makes it fire as the
+        // reader arrives rather than as they leave.
+        #expect(plan.triggers[4] == .goto(2))
+        #expect(plan.triggers[0] == nil)
+        // The last cue has no word under it, and is keyed to the end —
+        // the same place a trailing hold would go.
+        #expect(plan.triggers[index.wordCount] == .goto(3))
+    }
+
+    @Test func triggersAreReportedForTheStrokesThatCrossedThem() {
+        let index = ScriptIndex(tokens: ScriptParser.parse("a b [slide 2] c d e [slide 5] f"))
+        let plan = index.cuePlan
+        // Crossed exactly.
+        #expect(plan.triggers(from: -1, to: 2) == [.goto(2)])
+        #expect(plan.triggers(from: 0, to: 5) == [.goto(2), .goto(5)])
+        // A backwards jump re-arms nothing, and a jump that doesn't move
+        // reports nothing.
+        #expect(plan.triggers(from: 5, to: 2) == [])
+        #expect(plan.triggers(from: 3, to: 3) == [])
+        // A forward jump past two cues reports both, in script order, so
+        // the deck can be corrected to where the reader actually is.
+        #expect(plan.triggers(from: 1, to: 6) == [.goto(2), .goto(5)])
+    }
+}
+
+@Suite struct SlideCueCountTests {
+    @Test func everySlideCueIsCountedEvenWhenTheyShareAWord() {
+        // The bug this pins: `triggers` is keyed by word position, so two
+        // slide cues in a script with no words collide at word 0. Counting
+        // the dictionary reported "1 slide" for two cues.
+        let index = ScriptIndex(tokens: ScriptParser.parse("[slide]\n[slide]\n[slide 4]"))
+        #expect(index.cuePlan.slideCueCount == 3)
+        #expect(index.cuePlan.triggers.count == 1)
+    }
+
+    @Test func slideCuesUnderWordsAreCountedOnceEach() {
+        let index = ScriptIndex(tokens: ScriptParser.parse("a b [slide] c d [slide 2] e"))
+        #expect(index.cuePlan.slideCueCount == 2)
+        #expect(index.cuePlan.triggers[2] == .advance)
+        #expect(index.cuePlan.triggers[4] == .goto(2))
+    }
+}

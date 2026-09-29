@@ -149,7 +149,15 @@ struct CuebarApp: App {
             let length = min(editor.selectedRange().length, ns.length - location)
             body = ns.replacingCharacters(in: NSRange(location: location, length: length),
                                           with: snippet)
-            selection = NSRange(location: location + (snippet as NSString).length, length: 0)
+            // A cue that ends in a space is a blank waiting to be filled —
+            // `[slide ]` from the palette — and the caret belongs *inside*
+            // the brackets, not after them. Landing it past the `]` would
+            // have the number typed outside the cue, where it reads as
+            // ordinary script text.
+            let caretOffset = inner.hasSuffix(" ")
+                ? inner.utf16.count + 1
+                : (snippet as NSString).length
+            selection = NSRange(location: location + caretOffset, length: 0)
         } else {
             if !body.isEmpty { body += " " }
             body += snippet
