@@ -5,7 +5,9 @@ import PromptCore
 /// No transport controls here — Option-Space performs.
 struct EditView: View {
     let doc: ScriptDocument
-    let tokens: [ScriptToken]
+    /// The parsed script: the editor's word count comes from here rather
+    /// than from re-scanning the body twice per keystroke.
+    let index: ScriptIndex
     var wordsPerSecond: Double
     var categories: [String]
     var onRename: (String) -> Void
@@ -16,7 +18,7 @@ struct EditView: View {
     @State private var showingNewCategory = false
     @State private var newCategoryName = ""
 
-    private var cueCount: Int { tokens.reduce(0) { $0 + ($1.isCue ? 1 : 0) } }
+    private var cueCount: Int { index.cues.filter { $0 != nil }.count }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -26,6 +28,7 @@ struct EditView: View {
             ))
             .textFieldStyle(.plain)
             .font(.largeTitle.bold())
+            .foregroundStyle(CuePalette.ink)
             Menu {
                 ForEach(categories, id: \.self) { name in
                     Button(name) { onCategory(name) }
@@ -40,9 +43,14 @@ struct EditView: View {
             .menuStyle(.borderlessButton)
             TextEditor(text: $draftBody)
                 .font(.system(size: 16))
+                .foregroundStyle(CuePalette.ink)
                 .scrollContentBackground(.hidden)
                 .padding(12)
                 .background(CuePalette.card, in: RoundedRectangle(cornerRadius: CuePalette.cardRadius))
+                .overlay {
+                    RoundedRectangle(cornerRadius: CuePalette.cardRadius)
+                        .strokeBorder(CuePalette.hairline, lineWidth: 1)
+                }
                 .onChange(of: draftBody) { _, new in
                     pendingSave?.cancel()
                     pendingSave = Task { @MainActor in
@@ -52,9 +60,9 @@ struct EditView: View {
                     }
                 }
             HStack(spacing: 8) {
-                Text("\(doc.wordCount) words")
+                Text("\(index.wordCount) words")
                 Text("·")
-                Text(ReadingWindow.durationString(wordCount: doc.wordCount,
+                Text(ReadingWindow.durationString(wordCount: index.wordCount,
                                                  wordsPerSecond: wordsPerSecond))
                 if cueCount > 0 {
                     Text("·")

@@ -139,3 +139,33 @@ import PromptCore
         }
     }
 }
+
+@Suite struct TranscriptTailTests {
+    /// The tail extractor scans backwards; it must agree exactly with the
+    /// obvious "split and take the suffix" version, including the awkward
+    /// whitespace cases a recognizer emits.
+    @Test func tailMatchesTheSplitVersion() {
+        let inputs = [
+            "", " ", "  ", "one", "one two", "one  two   three",
+            "a b c d e f g h i j k l m n o p", "trailing space ",
+            "  leading space", "a\tb", "one two three four five",
+        ]
+        for text in inputs {
+            for maxWords in 0...5 {
+                let parts = text.split(separator: " ")
+                let expected = maxWords == 0 ? ""
+                    : (parts.count > maxWords
+                       ? parts.suffix(maxWords).joined(separator: " ")
+                       : text)
+                #expect(SpeechMatcher.transcriptTail(text, maxWords: maxWords) == expected,
+                        "tail(\\(text.debugDescription), \\(maxWords))")
+            }
+        }
+    }
+
+    @Test func tailIsCheapOnALongSession() {
+        // A long take: the extractor must not care how much came before.
+        let long = Array(repeating: "word", count: 20_000).joined(separator: " ")
+        #expect(SpeechMatcher.transcriptTail(long, maxWords: 3) == "word word word")
+    }
+}

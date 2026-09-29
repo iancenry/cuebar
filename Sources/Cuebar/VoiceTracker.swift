@@ -40,6 +40,10 @@ final class VoiceTracker {
     /// few seconds after you stop talking, and matching during that drain
     /// marches the highlight through repeated phrases on its own.
     private(set) var lastSpeechDate: Date?
+    /// Last time a transcript actually confirmed script words. Smart mode
+    /// moves with this clock: no confirmations means the WPM timer is
+    /// allowed to take over as a stall guard (paraphrasing, accents).
+    private(set) var lastMatchDate: Date?
     /// Recent input levels (~6 s at the 8 Hz ticker) for the waveform.
     /// Appends flat zeros when idle so the wave settles instead of freezing.
     private(set) var levelHistory: [Double] = Array(repeating: 0, count: 48)
@@ -48,19 +52,35 @@ final class VoiceTracker {
 
     private var driver: (any TranscriptionDriver)?
     private weak var engine: PromptEngine?
+    private var canonical: SpeechMatcher.CanonicalScript?
+
+    /// User intent from the mic toggle. PlaybackDriver re-opens the mic on
+    /// every Play in voice modes, so a mute that lived only in `state`
+    /// would be undone the moment the presenter hit Play again.
+    var isMutedByUser = false
 
     func start(engine: PromptEngine, preferred: CueSettings.TranscriptionEngine) async {
+        guard !isMutedByUser else { return }
         self.engine = engine
         guard state != .listening, state != .requesting else { return }
         state = .requesting
-        guard await Self.requestMicPermission() else {
+        guard await Self.requestMicPermission(), stillWantsMic() else {
             state = .denied
+            abandonStart()
             return
         }
         if preferred != .legacy, #available(macOS 26, *) {
             let analyzer = AnalyzerDriver()
             analyzer.events = self
             if await analyzer.start(language: language) {
+                // The on-device path can await a model download; a mute (or a
+                // cancelled syncVoice) during that wait must not leave a live
+                // capture running behind a "muted" flag.
+                guard stillWantsMic() else {
+                    analyzer.stop()
+                    abandonStart()
+                    return
+                }
                 driver = analyzer
                 driverName = analyzer.displayName
                 state = .listening
@@ -77,18 +97,33 @@ final class VoiceTracker {
         let legacy = LegacyDriver()
         legacy.events = self
         if legacy.needsSpeechPermission {
-            guard await Self.requestSpeechPermission() else {
+            guard await Self.requestSpeechPermission(), stillWantsMic() else {
                 state = .denied
+                abandonStart()
                 return
             }
         }
-        guard await legacy.start(language: language) else {
+        guard await legacy.start(language: language), stillWantsMic() else {
             state = .error("Couldn't start speech recognition for \(language).")
             return
         }
         driver = legacy
         driverName = legacy.displayName
         state = .listening
+    }
+
+    /// `start` is async and a mute can land in the middle of it; every
+    /// resumption point re-checks that the mic is still wanted.
+    private func stillWantsMic() -> Bool {
+        !isMutedByUser && !Task.isCancelled
+    }
+
+    /// Give back a half-built start without publishing an error state.
+    private func abandonStart() {
+        driver = nil
+        engine = nil
+        driverName = ""
+        if state == .requesting { state = .stopped }
     }
 
     func stop() {
@@ -110,12 +145,24 @@ final class VoiceTracker {
     /// the current position; nothing jumps back.
     func recycle() {
         driver?.resetTranscript()
+        refreshCanonicalScript()
+    }
+
+    /// Canonicalise the script once per load, not once per recognition
+    /// result — the partial results arrive dozens of times a second.
+    @discardableResult
+    private func refreshCanonicalScript() -> SpeechMatcher.CanonicalScript? {
+        canonical = engine.map { SpeechMatcher.CanonicalScript(words: $0.words) }
+        return canonical
     }
 
     /// Called when playback restarts: speech detection starts fresh so
     /// voice-activated guidance re-arms its WPM fallback.
     func resetSpeechSeen() {
         speechSeenSincePlay = false
+        // Start the Smart stall clock now so the first unrecognized
+        // seconds fall back to WPM instead of freezing.
+        lastMatchDate = Date()
     }
 
     /// Called from the app ticker (~8 Hz): refresh the published VAD state.
@@ -182,9 +229,14 @@ extension VoiceTracker: TranscriptionEvents {
         // transcript each time is O(session²) for nothing, since the
         // reading position only ever moves forward.
         let tail = SpeechMatcher.transcriptTail(text, maxWords: 20)
-        if let end = SpeechMatcher.matchEnd(transcript: tail,
-                                            words: engine.words,
-                                            fromWordIndex: engine.currentWordIndex ?? 0) {
+        // O(1) staleness check: a script load that skipped `recycle()` would
+        // otherwise match the old words.
+        let canon = canonical?.wordCount == engine.words.count
+            ? canonical
+            : refreshCanonicalScript()
+        if let end = canon?.matchEnd(transcript: tail,
+                                     fromWordIndex: engine.currentWordIndex ?? 0) {
+            lastMatchDate = Date()
             engine.confirmReadThroughWord(end)
         }
     }

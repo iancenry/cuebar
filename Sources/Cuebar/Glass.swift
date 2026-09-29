@@ -11,6 +11,17 @@ extension View {
             background(tint ?? CuePalette.card, in: shape)
         }
     }
+
+    /// Groups nearby glass controls into one Liquid Glass system so they
+    /// render (and merge while animating) coherently. No-op below 26.
+    @ViewBuilder
+    func glassGroup(spacing: CGFloat = 8) -> some View {
+        if #available(macOS 26, *) {
+            GlassEffectContainer(spacing: spacing) { self }
+        } else {
+            self
+        }
+    }
 }
 
 @available(macOS 26, *)

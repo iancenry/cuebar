@@ -40,7 +40,9 @@ struct BoostKeys: View {
         let down = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [engine, settings] event in
             guard event.keyCode == 124 else { return event }
             guard modeBinding.wrappedValue == .perform else { return event }
-            let flags = event.modifierFlags.intersection([.command, .option, .control])
+            // Shift counts: a rebound ⇧→ is a legal binding (Jump Forward),
+            // and two owners for one key is the thing this app forbids.
+            let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
             guard flags.isEmpty else { return event }
             Task { @MainActor in
                 engine.setBoost(settings.settings.clampedCatchUpBoost)
@@ -49,6 +51,8 @@ struct BoostKeys: View {
         }
         let up = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [engine] event in
             guard event.keyCode == 124 else { return event }
+            let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            guard flags.isEmpty, modeBinding.wrappedValue == .perform else { return event }
             Task { @MainActor in
                 engine.setBoost(1.0)
             }

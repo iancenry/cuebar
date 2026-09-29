@@ -181,3 +181,70 @@ import PromptCore
         #expect(!e.isHolding)
     }
 }
+
+@Suite struct RestartAndPauseReasonTests {
+    @Test @MainActor func restartReturnsToTheTopAndPlays() {
+        let e = PromptEngine()
+        e.loadScript("one two three four five six seven eight")
+        e.confirmRead(upTo: 40, allowBacktrack: true)
+        #expect((e.currentWordIndex ?? 0) > 0)
+        e.restart()
+        #expect(e.currentWordIndex == 0)
+        #expect(e.isPlaying)
+        #expect(e.progress == 0)     // must not trigger auto-next
+    }
+
+    @Test @MainActor func restartDuringASoftStopCancelsIt() {
+        let e = PromptEngine()
+        e.loadScript("one two three four five")
+        e.play()
+        e.pause()
+        #expect(e.isStopping)
+        e.restart()
+        #expect(!e.isStopping)
+        #expect(e.isPlaying)
+    }
+
+    @Test @MainActor func restartCancelsATimedHold() {
+        let e = PromptEngine()
+        e.loadScript("one two three")
+        e.play()
+        e.hold(for: 5)
+        e.restart()
+        #expect(!e.isHolding)
+        #expect(e.holdRemaining == nil)
+    }
+
+    @Test @MainActor func restartOnAnEmptyScriptIsSafe() {
+        let e = PromptEngine()
+        e.loadScript("")
+        e.restart()
+        #expect(!e.isPlaying)
+    }
+
+    @Test @MainActor func pauseReasonIsPublishedThenCleared() {
+        let e = PromptEngine()
+        e.loadScript("one two three")
+        e.play()
+        e.pause(reason: .smartPause)
+        #expect(e.pauseReason == .smartPause)
+        #expect(e.pauseReason?.label == "waiting for you")
+        e.pause(reason: .cue)
+        #expect(e.pauseReason?.label == "at cue")
+        e.play()
+        #expect(e.pauseReason == nil)
+    }
+
+    @Test @MainActor func aManualPauseHasNoReasonLabel() {
+        // "Paused" alone is right for a pause the presenter pressed; the
+        // label exists to explain the ones they didn't.
+        #expect(PromptEngine.PauseReason.manual.label == nil)
+    }
+
+    @Test @MainActor func pausingAStoppedEngineKeepsItsReason() {
+        let e = PromptEngine()
+        e.loadScript("one two")
+        e.pause(reason: .smartPause)   // never started
+        #expect(e.pauseReason == nil)
+    }
+}

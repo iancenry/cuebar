@@ -13,47 +13,19 @@ struct ReadingPreview: View {
     private static let sampleTokens: [ScriptToken] = ScriptParser.parse(
         "Welcome to Cuebar [pause]\n\nRead calmly here, one line at a time."
     )
+    private static let sampleIndex = ScriptIndex(tokens: sampleTokens)
 
     /// Demo position: first word read, second current — shows past dimming
     /// plus the current-word highlight style in one glance.
     private var demoCurrentIndex: Int { 1 }
 
-    private var visibleTokens: [ScriptToken] {
-        Self.sampleTokens.filter {
-            $0.isParagraphBreak || settings.showCues || !$0.isCue
-        }
-    }
-
-    private struct PreviewRow {
-        let token: ScriptToken
-        let wordIndex: Int // -1 for cues and breaks
-    }
-
-    private var rows: [PreviewRow] {
-        var out: [PreviewRow] = []
-        var wi = 0
-        for t in visibleTokens {
-            if t.isWord {
-                out.append(PreviewRow(token: t, wordIndex: wi))
-                wi += 1
-            } else {
-                out.append(PreviewRow(token: t, wordIndex: -1))
-            }
-        }
-        return out
-    }
-
-    private var paragraphs: [[PreviewRow]] {
-        var groups: [[PreviewRow]] = [[]]
-        for row in rows {
-            if row.token.isParagraphBreak {
-                groups.append([])
-            } else {
-                groups[groups.count - 1].append(row)
-            }
-        }
-        let nonEmpty = groups.filter { !$0.isEmpty }
-        return nonEmpty.isEmpty ? [[]] : nonEmpty
+    /// The same tested grouping the prompter uses (paragraph gaps, cue
+    /// filtering, pre-interpreted cues) instead of a second implementation
+    /// that could drift from it.
+    private var paragraphs: [[ReadingWindow.TokenRow]] {
+        let pageSize = max(Self.sampleIndex.wordCount, 1)
+        return Self.sampleIndex.pageParagraphRows(page: 0, pageSize: pageSize,
+                                                 showCues: settings.showCues)
     }
 
     var body: some View {
@@ -73,9 +45,10 @@ struct ReadingPreview: View {
                                              isCurrent: row.wordIndex == demoCurrentIndex,
                                              settings: settings,
                                              fontSize: fontSize)
-                                case .cue(let c):
-                                    CueBadge(text: CueBadge.label(for: c),
-                                             settings: settings, fontSize: fontSize)
+                                case .cue:
+                                    if let cue = row.cue {
+                                        CueBadge(cue: cue, settings: settings, fontSize: fontSize)
+                                    }
                                 case .paragraphBreak:
                                     EmptyView()
                                 }

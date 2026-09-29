@@ -78,37 +78,53 @@ extension CueSettings.SurfaceStyle {
     }
 }
 
-// MARK: - Cuebar Calm palette (warm paper + peach, mural-inspired)
+// MARK: - Cuebar palette (neutral graphite + peach)
 //
-// The prompter stays dark (camera-friendly) but warm: espresso
-// background, paper-white ink, peach highlight, rose cues.
-// Chrome uses the same tokens so main window, overlay, and
+// The prompter stays dark (camera-friendly) and neutral: a near-black
+// reading canvas, graphite furniture, and peach reserved for the one
+// thing that matters — the current word. Warm browns at low luminance
+// read as muddy sepia, so all chrome stays gray and the accent does the
+// talking. Chrome uses the same tokens so main window, overlay, and
 // settings all speak one design language.
 
 enum CuePalette {
-    /// Deep warm charcoal for the reading surface.
-    static let surface = Color(red: 0.13, green: 0.11, blue: 0.095)
-    /// Raised card fill on top of the surface.
-    static let card = Color.white.opacity(0.05)
-    /// Warm paper white for primary text.
-    static let ink = Color(red: 0.965, green: 0.94, blue: 0.90)
-    /// Muted taupe for secondary text.
-    static let muted = Color(red: 0.66, green: 0.61, blue: 0.55)
-    /// Warm stone for the alternate reading ink.
-    static let stone = Color(red: 0.79, green: 0.74, blue: 0.68)
-    /// Cool graphite reading surface.
-    static let graphite = Color(red: 0.15, green: 0.15, blue: 0.16)
-    /// Peach accent: progress, toggles, primary actions.
-    static let peach = Color(red: 0.95, green: 0.63, blue: 0.42)
-    /// Deep peach for text on the highlight pill.
-    static let onHighlight = Color(red: 0.16, green: 0.10, blue: 0.06)
-    /// Rose for stage cues.
-    static let rose = Color(red: 0.91, green: 0.48, blue: 0.58)
+    /// Near-black reading canvas — the darkest layer.
+    static let surface = Color(red: 0.059, green: 0.059, blue: 0.067)
+    /// Window furniture (top bar, transport, editor).
+    static let chrome = Color(red: 0.106, green: 0.106, blue: 0.118)
+    /// The library rail — one step under the chrome.
+    static let sidebar = Color(red: 0.086, green: 0.086, blue: 0.094)
+    /// Raised card fill on top of any surface.
+    static let card = Color.white.opacity(0.06)
+    /// Primary text.
+    static let ink = Color(red: 0.925, green: 0.925, blue: 0.933)
+    /// Secondary text.
+    static let muted = Color(red: 0.541, green: 0.541, blue: 0.561)
+    /// Alternate reading ink.
+    static let stone = Color(red: 0.72, green: 0.72, blue: 0.74)
+    /// Slate reading surface option.
+    static let graphite = Color(red: 0.11, green: 0.11, blue: 0.12)
+    /// Sunset-orange accent: progress, toggles, primary actions, current word.
+    /// More saturated than a peach so it doesn't read as tan on graphite.
+    static let peach = Color(red: 1.0, green: 0.561, blue: 0.302)
+    /// Deep brown for text on the peach highlight pill.
+    static let onHighlight = Color(red: 0.10, green: 0.07, blue: 0.04)
     /// Live green dot for the Reading status.
     static let live = Color(red: 0.45, green: 0.85, blue: 0.55)
+    /// Hairline separating chrome regions.
+    static let hairline = Color.white.opacity(0.08)
+    /// Hover wash for rows and quiet buttons.
+    static let hover = Color.white.opacity(0.05)
+    /// Selected/active wash — neutral so it never tints brown.
+    static let selection = Color.white.opacity(0.085)
 
     static let cardRadius: CGFloat = 16
-    static let pillRadius: CGFloat = 999
+    /// Height of the floating chrome band: the tallest control (26pt) plus
+    /// the strip's 5pt breathing room above and below. One constant, because
+    /// the reading surface, the editor and the sidebar all have to start
+    /// under the same line — a second guess here is what left the page
+    /// climbing behind the pills in an earlier pass.
+    static let chromeRowHeight: CGFloat = 36
 }
 
 /// Status chip: "Reading… 00:14" / "Holding 1.4s" / "Paused". Mural pill.
@@ -117,12 +133,19 @@ struct StatusPill: View {
     var showElapsed: Bool = true
     /// Countdown while a timed cue ([pause 2s]) freezes playback.
     var holdRemaining: TimeInterval? = nil
+    /// Why it stopped. A prompter that went quiet by itself must say so, or
+    /// the presenter has no idea whether to say something.
+    var pauseReason: PromptEngine.PauseReason? = nil
 
     private var label: String {
         if let r = holdRemaining, r > 0.05 {
             return "Holding \(String(format: "%.1f", r))s"
         }
-        return isPlaying ? "Reading…" : "Paused"
+        guard !isPlaying else { return "Reading…" }
+        if let reason = pauseReason?.label {
+            return "Paused — \(reason)"
+        }
+        return "Paused"
     }
 
     var body: some View {
@@ -146,6 +169,23 @@ struct StatusPill: View {
         .glassSurface(in: Capsule())
     }
 }
+
+struct ElapsedClock: View {
+    @State private var start = Date()
+
+    var body: some View {
+        TimelineView(.periodic(from: start, by: 1.0)) { ctx in
+            Text(clockString(ctx.date.timeIntervalSince(start)))
+                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+        }
+    }
+
+    private func clockString(_ t: TimeInterval) -> String {
+        let total = max(0, Int(t))
+        return String(format: "%02d:%02d", total / 60, total % 60)
+    }
+}
+
 
 // MARK: - Bundled OpenDyslexic (SIL-OFL, see Resources/OFL.txt)
 

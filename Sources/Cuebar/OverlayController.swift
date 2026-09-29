@@ -29,11 +29,17 @@ final class OverlayController {
     private static let islandMaxWidth = 640.0
     var isShowing = false
 
-    func toggle(engine: PromptEngine, settings: SettingsStore, tokens: [ScriptToken], voice: VoiceTracker) {
-        isShowing ? hide() : show(engine: engine, settings: settings, tokens: tokens, voice: voice)
+    /// "The prompter is up". The global key tap only runs while this is true,
+    /// so every show/hide has to tell the tap — including the ones that
+    /// happen with the main window closed.
+    var isPresenting: Bool { isShowing }
+    var onPresentingChanged: ((Bool) -> Void)?
+
+    func toggle(engine: PromptEngine, settings: SettingsStore, index: ScriptIndex, voice: VoiceTracker) {
+        isShowing ? hide() : show(engine: engine, settings: settings, index: index, voice: voice)
     }
 
-    func show(engine: PromptEngine, settings: SettingsStore, tokens: [ScriptToken], voice: VoiceTracker) {
+    func show(engine: PromptEngine, settings: SettingsStore, index: ScriptIndex, voice: VoiceTracker) {
         // Rebuild path (e.g. overlay-mode switch): drop the panel but
         // leave a hidden main window hidden — no restore flicker.
         closePanel()
@@ -71,7 +77,7 @@ final class OverlayController {
         if chrome.transparencyEnabled {
             p.alphaValue = max(0.3, min(1.0, chrome.transparencyAmount))
         }
-        let host = NSHostingView(rootView: OverlayPanelView(engine: engine, settings: settings, tokens: tokens,
+        let host = NSHostingView(rootView: OverlayPanelView(engine: engine, settings: settings, index: index,
                                                             voice: voice, follow: followBinding, island: island, menuBarHeight: islandMenuBar,
                                                             onClose: { [weak self] in self?.hide() }))
         p.contentView = host
@@ -102,13 +108,14 @@ final class OverlayController {
         }
         panel = p
         isShowing = true
+        onPresentingChanged?(true)
     }
 
     /// Live-refresh script text while the overlay stays open.
-    func update(tokens: [ScriptToken]) {
+    func update(index: ScriptIndex) {
         guard let engine, let store, let voice, isShowing else { return }
         let island = store.settings.overlayMode == .notch
-        hosting?.rootView = OverlayPanelView(engine: engine, settings: store, tokens: tokens,
+        hosting?.rootView = OverlayPanelView(engine: engine, settings: store, index: index,
                                              voice: voice, follow: followBinding, island: island, menuBarHeight: islandMenuBar,
                                              onClose: { [weak self] in self?.hide() })
     }
@@ -200,6 +207,7 @@ final class OverlayController {
         store = nil
         voice = nil
         isShowing = false
+        onPresentingChanged?(false)
         if let closeObserver {
             NotificationCenter.default.removeObserver(closeObserver)
             self.closeObserver = nil
@@ -240,9 +248,9 @@ final class OverlayController {
     }
 #else
     var isShowing = false
-    func toggle(engine: PromptEngine, settings: SettingsStore, tokens: [ScriptToken], voice: VoiceTracker) {}
-    func show(engine: PromptEngine, settings: SettingsStore, tokens: [ScriptToken], voice: VoiceTracker) {}
-    func update(tokens: [ScriptToken]) {}
+    func toggle(engine: PromptEngine, settings: SettingsStore, index: ScriptIndex, voice: VoiceTracker) {}
+    func show(engine: PromptEngine, settings: SettingsStore, index: ScriptIndex, voice: VoiceTracker) {}
+    func update(index: ScriptIndex) {}
     func hide() {}
 #endif
 }

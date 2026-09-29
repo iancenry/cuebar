@@ -60,7 +60,7 @@ struct TypographyTab: View {
                 }
                 SettingRow(label: "Background") {
                     Picker("Background", selection: $settings.settings.surfaceStyle) {
-                        Text("Espresso").tag(CueSettings.SurfaceStyle.espresso)
+                        Text("Graphite").tag(CueSettings.SurfaceStyle.espresso)
                         Text("Black").tag(CueSettings.SurfaceStyle.black)
                         Text("Slate").tag(CueSettings.SurfaceStyle.slate)
                     }

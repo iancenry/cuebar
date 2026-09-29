@@ -3,7 +3,10 @@ import Foundation
 public struct ScriptDocument: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
     public var title: String
-    public var body: String
+    /// Read-only: `wordCount` is derived from the body, so letting anyone
+    /// assign the body directly would silently desync the count the sidebar
+    /// shows. Go through `setBody`.
+    public private(set) var body: String
     public var updatedAt: Date
     public var category: String
 
@@ -14,6 +17,7 @@ public struct ScriptDocument: Identifiable, Codable, Equatable, Sendable {
         self.body = body
         self.updatedAt = updatedAt
         self.category = category
+        self.wordCount = ScriptParser.wordCount(body)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -27,9 +31,18 @@ public struct ScriptDocument: Identifiable, Codable, Equatable, Sendable {
         body = try c.decode(String.self, forKey: .body)
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
         category = (try? c.decodeIfPresent(String.self, forKey: .category)) ?? "Scripts"
+        wordCount = ScriptParser.wordCount(body)
     }
 
-    public var wordCount: Int { ScriptParser.words(body).count }
+    /// Cached word count. The sidebar asks for this once per row on every
+    /// body pass (and re-renders on each keystroke of a title), so scanning
+    /// the whole script each time was the sidebar's whole cost.
+    public private(set) var wordCount: Int = 0
+
+    public mutating func setBody(_ body: String) {
+        self.body = body
+        wordCount = ScriptParser.wordCount(body)
+    }
 }
 
 @MainActor
@@ -119,7 +132,7 @@ public final class ScriptStore {
 
     public func updateBody(_ id: UUID, body: String) {
         guard let i = scripts.firstIndex(where: { $0.id == id }) else { return }
-        scripts[i].body = body
+        scripts[i].setBody(body)
         scripts[i].updatedAt = Date()
         save()
     }

@@ -63,8 +63,9 @@ import PromptCore
         #expect(s.readingWidth == 650)
         #expect(s.naturalPacing == true)
         #expect(s.catchUpBoost == 1.6)
-        #expect(s.pauseOnPauseCues == false)
+        #expect(s.pauseOnPauseCues == true)
         #expect(s.smartPause == .off)
+        #expect(s.autoNextScript == false)
         #expect(s.releaseFollowOnScroll == true)
     }
 
@@ -84,7 +85,7 @@ import PromptCore
 
     @Test func smartPauseNormalThresholds() {
         let mode = CueSettings.SmartPauseMode.normal
-        #expect(mode.silenceThreshold == 2.5)
+        #expect(mode.silenceThreshold == 3.0)   // the spec's three seconds
         #expect(mode.resumeThreshold == 1.5)
     }
 
@@ -141,5 +142,39 @@ import PromptCore
         let doc = try JSONDecoder().decode(ScriptDocument.self, from: json)
         #expect(doc.category == "Scripts")
         #expect(doc.wordCount == 2)
+    }
+}
+
+@Suite struct LegacySettingsKeyTests {
+    /// The old `autoNextPage` spelling still migrates — and a fresh file
+    /// must not gain a phantom `autoNextScript` (decoding must not invent
+    /// values the user never set).
+    @Test func autoNextPageMigrates() throws {
+        let json = #"{"autoNextPage": true}"#
+        let decoded = try JSONDecoder().decode(CueSettings.self, from: Data(json.utf8))
+        #expect(decoded.autoNextScript)
+    }
+
+    @Test func encodingRoundTripsEveryField() throws {
+        var settings = CueSettings()
+        settings.autoNextScript = true
+        settings.shortcuts.bind(KeyChord(keyCode: KeyCode.j, modifiers: [.command, .option]), to: .restart)
+        let data = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(CueSettings.self, from: data)
+        #expect(decoded == settings)
+        // The legacy key is decode-only: it must not appear in output.
+        #expect(!String(decoding: data, as: UTF8.self).contains("autoNextPage"))
+    }
+
+    @Test func wordsPerMinuteIsClampedToPresenterSpeeds() {
+        var settings = CueSettings()
+        settings.adjustWordsPerMinute(by: 10_000)
+        #expect(settings.wordsPerMinute == 480)
+        settings.adjustWordsPerMinute(by: -10_000)
+        #expect(settings.wordsPerMinute == 30)
+        // Stepping never leaves a fractional value behind for the slider.
+        settings.wordsPerMinute = 152
+        settings.adjustWordsPerMinute(by: 1)
+        #expect(settings.wordsPerMinute == 153)
     }
 }

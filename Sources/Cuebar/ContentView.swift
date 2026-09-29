@@ -1,5 +1,8 @@
 import SwiftUI
 import PromptCore
+#if os(macOS)
+import AppKit
+#endif
 
 enum PerformMode: String, CaseIterable {
     case perform, edit
@@ -13,11 +16,38 @@ struct ContentView: View {
     @Bindable var settings: SettingsStore
     @Binding var draftBody: String
     @Binding var tokens: [ScriptToken]
+    @Binding var index: ScriptIndex
     @Bindable var overlay: OverlayController
     @Bindable var voice: VoiceTracker
+    @Bindable var hotkeys: HotkeyCenter
+    @Bindable var globalHotkeys: GlobalHotkeys
+    let app: AppCommandBridge
     @State private var mode: PerformMode = .perform
     @State private var follow = true
     @State private var sharing = SharingGuard()
+
+    /// Whatever the mode shows, edge to edge. Split out of `body` because
+    /// the overlay, the transport dock and the editor together made one
+    /// expression the type-checker gave up on.
+    @ViewBuilder private var stage: some View {
+        if mode == .perform {
+            PrompterBody(engine: engine, index: index,
+                         settings: settings, voice: voice, follow: $follow,
+                         showsFooter: false, showsPageControls: true,
+                         bottomInset: 112, topInset: CuePalette.chromeRowHeight,
+                         showsHeader: false)
+                .overlay(alignment: .bottom) { transport }
+        } else {
+            editor
+        }
+    }
+
+    private var transport: some View {
+        TransportBar(engine: engine, settings: settings, overlay: overlay,
+                     voice: voice, index: index, follow: $follow)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
+    }
 
     var body: some View {
         HSplitView {
@@ -27,38 +57,51 @@ struct ContentView: View {
                         },
                         onCategory: { setCategory($0, for: $1) },
                         onExport: { ScriptIO.export($0) })
+                .background(CuePalette.sidebar)
             // The content column owns the (slim) top bar; the traffic
             // lights live over the sidebar like Codex — no app-title
-            // strip spanning the window.
-            VStack(spacing: 0) {
+            // strip spanning the window. In Perform the reading canvas
+            // runs edge to edge and the chrome floats over it as glass.
+            ZStack(alignment: .top) {
+                stage
+                // Over the canvas, never a row in it: a row would expose the
+                // column background above the reading surface and paint the
+                // band this layout is trying not to have. The canvas runs to
+                // the window top and the chrome floats on it as glass, so
+                // the two are one surface.
                 TopBar(settings: settings, engine: engine,
-                       overlay: overlay, voice: voice, tokens: tokens,
+                       overlay: overlay, voice: voice, index: index,
                        mode: $mode)
-                Divider().opacity(0.4)
-                if mode == .perform {
-                    VStack(spacing: 0) {
-                        PrompterBody(engine: engine, tokens: tokens, settings: settings,
-                                     voice: voice, follow: $follow,
-                                     showsFooter: false, showsPageControls: true, showsHeader: false)
-                        TransportBar(engine: engine, settings: settings, overlay: overlay,
-                                     voice: voice, tokens: tokens, follow: $follow)
-                    }
-                } else {
-                    editor
-                }
             }
+            .ignoresSafeArea(.container, edges: .top)
+            .background(CuePalette.chrome)
             .frame(minWidth: 520)
         }
         .background {
+            WindowConfigurator()
+        }
+        .background {
             PlaybackDriver(engine: engine, scripts: scripts, settings: settings,
-                           overlay: overlay, voice: voice, tokens: tokens,
+                           overlay: overlay, voice: voice, index: index,
                            mode: $mode, pick: pick)
         }
         .background {
             BoostKeys(engine: engine, settings: settings, mode: $mode)
         }
+        .background {
+            HotkeyWiring(hotkeys: hotkeys, globalHotkeys: globalHotkeys, app: app,
+                         shortcuts: settings.settings.shortcuts, index: index,
+                         context: CommandContext(engine: engine, voice: voice,
+                                                 overlay: overlay, follow: $follow,
+                                                 mode: $mode, index: index),
+                         mode: $mode)
+        }
         .onAppear {
             if let doc = scripts.selected { showDraft(doc) }
+            // The global key tap needs both collaborators, and neither
+            // exists at App-init time.
+            globalHotkeys.attach(hotkeys: hotkeys, overlay: overlay)
+
             sharing.setHidden(settings.settings.hideFromShare)
             // Persisted prefs are the source of truth; the engine starts live.
             engine.setSpeed(settings.settings.wordsPerSecond)
@@ -68,17 +111,24 @@ struct ContentView: View {
             guard let id = new, let doc = doc(matching: id) else {
                 draftBody = ""
                 tokens = []
+                index = ScriptIndex(tokens: [])
                 engine.loadScript("")
                 return
             }
             showDraft(doc)
         }
-        .onChange(of: tokens) { _, new in
-            if overlay.isShowing { overlay.update(tokens: new) }
+        .onChange(of: index) { _, new in
+            // One index drives the open panel: pages, cues and the empty
+            // check all come from it, so a re-render never re-parses.
+            if overlay.isShowing { overlay.update(index: new) }
+        }
+        .onChange(of: overlay.isShowing) { _, _ in
+            // The global tap only runs while presenting.
+            globalHotkeys.sync()
         }
         .onChange(of: settings.settings.overlayMode) { _, _ in
             if overlay.isShowing {
-                overlay.show(engine: engine, settings: settings, tokens: tokens, voice: voice)
+                overlay.show(engine: engine, settings: settings, index: index, voice: voice)
             }
         }
         .onChange(of: settings.settings.hideFromShare) { _, hide in
@@ -94,7 +144,8 @@ struct ContentView: View {
     private var editor: some View {
         Group {
             if let doc = scripts.selected {
-                EditView(doc: doc, tokens: tokens, wordsPerSecond: engine.wordsPerSecond,
+                EditView(doc: doc, index: index,
+                         wordsPerSecond: engine.wordsPerSecond,
                          categories: scripts.knownCategories,
                          onRename: { scripts.rename(doc.id, title: $0) },
                          onCategory: { setCategory($0, for: doc.id) },
@@ -109,23 +160,27 @@ struct ContentView: View {
 
     private func showDraft(_ doc: ScriptDocument) {
         draftBody = doc.body
-        tokens = ScriptParser.parse(doc.body)
-        engine.loadScript(doc.body)
-        voice.recycle()
+        adopt(body: doc.body, preservingPosition: false)
     }
 
     private func commit(_ body: String, for id: UUID) {
         scripts.updateBody(id, body: body)
-        engine.loadScript(body, preservingPosition: true)
-        tokens = ScriptParser.parse(body)
+        adopt(body: body, preservingPosition: true)
+    }
+
+    /// Parse once, into the one structure everything else reads.
+    private func adopt(body: String, preservingPosition: Bool) {
+        let parsed = ScriptParser.parse(body)
+        tokens = parsed
+        index = ScriptIndex(tokens: parsed)
+        engine.loadScript(body, preservingPosition: preservingPosition)
         voice.recycle()
     }
 
+    /// `scripts.select` publishes the change, and the `onChange` above does
+    /// the load — loading here too would parse and index the script twice.
     private func pick(_ id: UUID) {
         scripts.select(id)
-        if let doc = doc(matching: id) {
-            showDraft(doc)
-        }
     }
 
     private func setCategory(_ name: String, for id: UUID) {

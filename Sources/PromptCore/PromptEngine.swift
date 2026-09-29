@@ -39,6 +39,7 @@ public final class PromptEngine {
     public var isStopping: Bool { stopping }
     /// Seconds left in a timed-cue hold, for countdown UIs.
     public private(set) var holdRemaining: TimeInterval?
+    public private(set) var pauseReason: PauseReason?
     public var isHolding: Bool { holdUntil != nil }
     private var holdUntil: Date?
 
@@ -64,6 +65,9 @@ public final class PromptEngine {
     public init() {}
 
     public func loadScript(_ text: String, preservingPosition: Bool = false) {
+        // A reason belongs to the run that earned it: without this, a script
+        // swap while paused on a [pause] cue would keep saying "at cue".
+        pauseReason = nil
         // Cues like [smile] are stage directions: never tracked as words.
         // One parse feeds both the word list and paragraph-open tracking.
         let tokens = ScriptParser.parse(text)
@@ -130,6 +134,7 @@ public final class PromptEngine {
     public func play() {
         guard !words.isEmpty else { return }
         cancelHold()
+        pauseReason = nil
         if readCharCount >= cachedTotal {
             // Already at the end: restart instead of flashing playing.
             setReadCharCount(0)
@@ -141,20 +146,42 @@ public final class PromptEngine {
     /// Soft stop: velocity eases out over ~0.4s instead of halting dead.
     /// Ticks keep nudging forward with decaying speed until settled.
     /// Cancels any timed hold — manual always wins.
-    public func pause() {
+    ///
+    /// The reason is published because a prompter that has silently stopped
+    /// is the worst failure a presenter can have: "Paused" and "Paused —
+    /// waiting for you" tell them whether to say something.
+    public func pause(reason: PauseReason = .manual) {
         cancelHold()
         guard isPlaying else { return }
+        pauseReason = reason
         stopping = true
     }
     /// Immediate halt for teardown paths (script switch, hide). Playback
     /// controls should prefer `pause()` for the eased feel.
     public func stopImmediately() {
         cancelHold()
+        pauseReason = nil
         stopping = false
         isPlaying = false
         effectiveWordsPerSecond = 0
     }
     public func toggle() { isPlaying && !stopping ? pause() : play() }
+
+    /// Why playback is easing to a stop. Cleared by `play()`.
+    public enum PauseReason: String, Equatable, Sendable {
+        case manual
+        case cue
+        case smartPause
+
+        /// Shown next to the status pill. An audience reads this screen.
+        public var label: String? {
+            switch self {
+            case .manual: return nil
+            case .cue: return "at cue"
+            case .smartPause: return "waiting for you"
+            }
+        }
+    }
 
     // MARK: - Timed holds ([pause 2s])
 
@@ -246,6 +273,20 @@ public final class PromptEngine {
     public func jumpRelative(words delta: Int) {
         let base = currentWordIndex ?? 0
         _ = jumpTo(wordIndex: base + delta)
+    }
+
+    /// Back to the first word and rolling. Distinct from `jumpTo(0)`, which
+    /// leaves an idle engine idle — restart is what a presenter means when
+    /// they lose their place.
+    public func restart() {
+        cancelHold()
+        pauseReason = nil
+        guard !words.isEmpty else { return }
+        charRemainder = 0
+        setReadCharCount(0)
+        effectiveWordsPerSecond = 0
+        stopping = false
+        isPlaying = true
     }
 
     public func setSpeed(_ value: Double) {

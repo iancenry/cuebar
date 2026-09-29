@@ -14,6 +14,15 @@ enum PreviewHelper {
     }
 
     static var tokens: [ScriptToken] { ScriptParser.parse(SampleTexts.welcome) }
+    static var index: ScriptIndex { ScriptIndex(tokens: tokens) }
+
+    static func hotkeys(for settings: SettingsStore) -> HotkeyCenter {
+        HotkeyCenter(settings: settings)
+    }
+
+    static func globalHotkeys(for settings: SettingsStore) -> GlobalHotkeys {
+        GlobalHotkeys(settings: settings)
+    }
 }
 
 #Preview("Prompter") {
@@ -21,13 +30,15 @@ enum PreviewHelper {
     @Previewable @State var settings = SettingsStore(inMemory: CueSettings())
     @Previewable @State var voice = VoiceTracker()
     @Previewable @State var follow = true
-    return PrompterBody(engine: engine, tokens: PreviewHelper.tokens, settings: settings,
-                        voice: voice, follow: $follow)
+    return PrompterBody(engine: engine, index: PreviewHelper.index,
+                        settings: settings, voice: voice, follow: $follow)
         .frame(width: 700, height: 500)
 }
 
 #Preview("Settings") {
     @Previewable @State var settings = SettingsStore(inMemory: CueSettings())
-    return SettingsView(settings: settings)
+    let center = PreviewHelper.hotkeys(for: settings)
+    return SettingsView(settings: settings, hotkeys: center,
+                        globalHotkeys: PreviewHelper.globalHotkeys(for: settings))
         .frame(width: 560, height: 540)
 }

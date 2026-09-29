@@ -26,74 +26,21 @@ public enum ReadingWindow: Sendable {
         return start..<min(start + pageSize, wordCount)
     }
 
-    /// Assign every token a page. Cues and paragraph breaks ride with the
-    /// next word so a `[pause]` before word N appears on N's page;
-    /// trailing cues join the last page. Single pass: word indices are
-    /// assigned walking forward, pages walking back. (A previous version
-    /// called a linear scan per token — O(n²) on every render. Don't
-    /// regress this.)
-    public static func tokenPages(_ tokens: [ScriptToken], pageSize: Int) -> [Int] {
-        guard pageSize > 0, !tokens.isEmpty else { return tokens.map { _ in 0 } }
-        var wordIndexAt = Array(repeating: -1, count: tokens.count)
-        var wordCount = 0
-        for i in tokens.indices where tokens[i].isWord {
-            wordIndexAt[i] = wordCount
-            wordCount += 1
-        }
-        let lastPage = max(0, pageCount(wordCount: wordCount, pageSize: pageSize) - 1)
-        var pages = Array(repeating: 0, count: tokens.count)
-        var nextWord = wordCount
-        for i in tokens.indices.reversed() {
-            if !tokens[i].isWord {
-                let w = min(nextWord, max(0, wordCount - 1))
-                pages[i] = wordCount == 0 ? 0 : min(w / pageSize, lastPage)
-            } else {
-                nextWord = wordIndexAt[i]
-                pages[i] = min(wordIndexAt[i] / pageSize, lastPage)
-            }
-        }
-        return pages
-    }
-
     // MARK: - Page rendering groups
 
     /// One render row for a page: the token plus the tracking word index
-    /// (-1 for cues and paragraph breaks, which are never tracked).
+    /// (-1 for cues and paragraph breaks, which are never tracked). The cue
+    /// is pre-interpreted by `ScriptIndex` — a badge used to parse its cue
+    /// string twice per render, per cue on screen.
     public struct TokenRow: Equatable, Sendable {
         public let token: ScriptToken
         public let wordIndex: Int
-    }
-
-    /// Paragraph groups of rows for one page, in a single pass. Cues hide
-    /// when `showCues` is false; paragraph breaks always split groups so a
-    /// page renders real gaps. Replaces the old two-pass rows()/paragraphs()
-    /// pair, which materialized every token in the script and re-filtered
-    /// it twice on every render.
-    public static func pageParagraphRows(_ tokens: [ScriptToken],
-                                         page: Int,
-                                         pageSize: Int,
-                                         showCues: Bool) -> [[TokenRow]] {
-        let pages = tokenPages(tokens, pageSize: pageSize)
-        var groups: [[TokenRow]] = [[]]
-        var wordIndex = 0
-        for (i, t) in tokens.enumerated() {
-            guard pages[i] == page else {
-                if t.isWord { wordIndex += 1 }
-                continue
-            }
-            if t.isParagraphBreak {
-                groups.append([])
-            } else if t.isCue, !showCues {
-                continue
-            } else {
-                groups[groups.count - 1].append(TokenRow(token: t, wordIndex: t.isWord ? wordIndex : -1))
-            }
-            if t.isWord { wordIndex += 1 }
+        public let cue: ScriptCue?
+        public init(token: ScriptToken, wordIndex: Int, cue: ScriptCue? = nil) {
+            self.token = token
+            self.wordIndex = wordIndex
+            self.cue = cue
         }
-        // A page boundary can strand a leading break; drop empty groups
-        // but keep at least one so empty pages still render.
-        let nonEmpty = groups.filter { !$0.isEmpty }
-        return nonEmpty.isEmpty ? [[]] : nonEmpty
     }
 
     // MARK: - Overlay placement (plain numbers, no AppKit)
@@ -154,56 +101,65 @@ public enum ReadingWindow: Sendable {
 
     // MARK: - Cues
 
-    /// Word indices that follow a *bare* timing cue ([pause], [wait],
-    /// [hold] — no duration). The driver auto-pauses on these when the
-    /// pause-cues setting is on. Timed cues ([pause 2s]) are handled by
-    /// `timedHoldCues` instead.
+    /// Everything the cue system needs about a script, in one pass and one
+    /// `ScriptCue.interpret` per cue. Three families used to be derived
+    /// independently and they disagreed: a direction cue between `[pause 2s]`
+    /// and its word cancelled the pending wait, and a trailing cue was
+    /// dropped. One structure, one answer — and it is computed once per
+    /// script instead of twice per word change.
+    public struct CuePlan: Equatable, Sendable {
+        /// Word index → seconds to freeze there.
+        public var holds: [Int: TimeInterval] = [:]
+        /// Word indices that auto-pause (bare timing cues and `[break…]`).
+        public var pauses: Set<Int> = []
+        /// Every cue target, ascending — where Next/Previous Cue jump to.
+        public var indices: [Int] = []
+        public var isEmpty: Bool { indices.isEmpty }
+    }
+
+    /// Thin readers over `ScriptIndex`, which owns the one implementation.
     public static func pauseCueWordIndices(_ tokens: [ScriptToken]) -> Set<Int> {
-        var out: Set<Int> = []
-        var wordCount = 0
-        var armed = false
-        for t in tokens {
-            switch t {
-            case .word:
-                if armed { out.insert(wordCount) }
-                armed = false
-                wordCount += 1
-            case .cue(let c):
-                armed = isPauseCue(c) && ScriptCue.interpret(c).seconds == nil
-            case .paragraphBreak:
-                break
-            }
-        }
-        return out
+        ScriptIndex(tokens: tokens).cuePlan.pauses
     }
 
-    /// Timed holds: word index that follows the cue → seconds to freeze.
-    /// `[smile][pause 2s] word` arms word 0 with 2 s.
     public static func timedHoldCues(_ tokens: [ScriptToken]) -> [Int: TimeInterval] {
-        var out: [Int: TimeInterval] = [:]
-        var wordCount = 0
-        var pending: TimeInterval? = nil
-        for t in tokens {
-            switch t {
-            case .word:
-                if let seconds = pending {
-                    out[wordCount] = seconds
-                    pending = nil
-                }
-                wordCount += 1
-            case .cue(let c):
-                let cue = ScriptCue.interpret(c)
-                pending = cue.kind.isTiming ? cue.seconds : nil
-            case .paragraphBreak:
-                break
-            }
-        }
-        return out
+        ScriptIndex(tokens: tokens).cuePlan.holds
     }
 
-    public static func isPauseCue(_ cue: String) -> Bool {
-        let c = ScriptCue.interpret(cue)
-        if c.kind.isTiming { return true }
-        return c.label.lowercased().contains("break")
+    /// Ascending word indices of the words that *follow* a cue. Cues take no
+    /// word slot of their own, so "jump to cue" means landing on the first
+    /// word the cue introduces — the badge then sits just off the top of the
+    /// viewport with its line on screen.
+    public static func cueWordIndices(_ tokens: [ScriptToken]) -> [Int] {
+        ScriptIndex(tokens: tokens).cuePlan.indices
+    }
+
+    public static func isPauseCue(_ cue: ScriptCue) -> Bool {
+        if cue.kind.isTiming { return true }
+        return cue.label.lowercased().contains("break")
+    }
+
+    /// Words in `seconds` of reading, signed. The transport keys and the
+    /// transport buttons both go through here so "skip ten seconds" means one
+    /// thing regardless of the current speed.
+    public static func jumpWords(forSeconds seconds: TimeInterval, wordsPerSecond wps: Double) -> Int {
+        guard seconds.isFinite, wps.isFinite else { return 0 }
+        let words = Int((abs(seconds) * wps).rounded())
+        return seconds < 0 ? -words : words
+    }
+
+    /// Next cue strictly after `index`; wraps to the first cue from the end
+    /// so "next cue" from the last line restarts the cue tour instead of
+    /// dead-ending. Nil when the script has no cues.
+    public static func nextCueWordIndex(after index: Int?, in indices: [Int]) -> Int? {
+        guard let first = indices.first else { return nil }
+        guard let index else { return first }
+        return indices.first { $0 > index } ?? first
+    }
+
+    public static func previousCueWordIndex(before index: Int?, in indices: [Int]) -> Int? {
+        guard let last = indices.last else { return nil }
+        guard let index else { return last }
+        return indices.last { $0 < index } ?? last
     }
 }

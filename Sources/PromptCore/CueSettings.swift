@@ -83,7 +83,7 @@ public struct CueSettings: Codable, Equatable, Sendable {
             switch self {
             case .off: return .infinity
             case .conservative: return 4.0
-            case .normal: return 2.5
+            case .normal: return 3.0
             case .aggressive: return 1.5
             }
         }
@@ -141,14 +141,23 @@ public struct CueSettings: Codable, Equatable, Sendable {
     public var naturalPacing: Bool = true
     /// Hold-to-catch-up multiplier (1.2…2.5×) while the boost key/button is held.
     public var catchUpBoost: Double = 1.6
-    /// Auto-pause when the highlight reaches a [pause]/[wait]/[hold] cue.
-    public var pauseOnPauseCues: Bool = false
+    /// Auto-pause when the highlight reaches a bare [pause]/[wait]/[hold]
+    /// cue. On by default: a bare [pause] in a script is a request to stop,
+    /// and the ⌘K palette says so. Timed cues ([pause 2s]) always execute,
+    /// regardless of this.
+    public var pauseOnPauseCues: Bool = true
     /// Detect sustained speech silence and auto-pause; resume when speech returns.
     public var smartPause: SmartPauseMode = .off
     /// Scroll wheel releases Follow instead of fighting auto-scroll.
     public var releaseFollowOnScroll: Bool = true
     public var highlightCurrent: Bool = true
     public var highlightStyle: HighlightStyle = .pill
+    /// User-remappable command keys. Sparse: absent actions ride their default.
+    public var shortcuts: ShortcutMap = .default
+    /// Let Cuebar's shortcuts work while another app is in front, but only
+    /// while the prompter overlay is up. Needs the macOS Accessibility
+    /// permission, so it is opt-in.
+    public var globalHotkeys: Bool = false
     public var showCues: Bool = true
     public var hidePunctuation: Bool = false
     public var showProgress: Bool = true
@@ -159,6 +168,27 @@ public struct CueSettings: Codable, Equatable, Sendable {
 
     /// Engine speed in words/sec derived from the persisted WPM.
     public var wordsPerSecond: Double { max(0.5, min(8.0, wordsPerMinute / 60.0)) }
+
+    /// Presenter-speed bounds in one place: every writer (keys, transport
+    /// stepper, speed sliders) goes through this so the range can't drift.
+    /// A function on purpose — reading it off a `Double` is what a stale copy
+    /// of the range always looks like.
+    public static func clampedWPM(_ value: Double) -> Double {
+        min(480, max(30, value.rounded()))
+    }
+
+    public var clampedWordsPerMinute: Double { Self.clampedWPM(wordsPerMinute) }
+
+    /// The only supported ways to change reading speed. Rounding first keeps
+    /// a ±5 stepper from persisting 152.5 and drifting the slider; the clamp
+    /// is the single copy of the 30…480 range.
+    public mutating func adjustWordsPerMinute(by delta: Double) {
+        setWordsPerMinute(wordsPerMinute + delta)
+    }
+
+    public mutating func setWordsPerMinute(_ value: Double) {
+        wordsPerMinute = Self.clampedWPM(value)
+    }
 
     /// Smooth-scroll animation duration: faster scrollSpeed snaps quicker.
     public var scrollAnimationDuration: Double {
@@ -173,19 +203,10 @@ public struct CueSettings: Codable, Equatable, Sendable {
 
     public init() {}
 
-    private enum CodingKeys: String, CodingKey {
-        case guidance, speechLanguage, transcriptionEngine
-        case fontFamily, textSize, prompterScale, highlight, cueColor, cueBrightness
-        case overlayWidth, overlayHeight, overlayMode, displayTarget
-        case transparencyEnabled, transparencyAmount, showElapsed, hideFromShare
-        case autoNextScript, pageSize, fixedDisplayIndex, hideMainWhilePresenting
-        case alwaysOnTop, floatingOriginX, floatingOriginY
-        case fontWeight, textColor, surfaceStyle, lineSpacing, letterSpacing
-        case readingWidth, textAlignment, smoothScroll, highlightCurrent, highlightStyle
-        case showCues, hidePunctuation, showProgress, showCenterLine
-        case paragraphSpacing, scrollSpeed, wordsPerMinute, popOutOnPlay
-        case naturalPacing, catchUpBoost, pauseOnPauseCues, smartPause, releaseFollowOnScroll
-        case legacyAutoNextPage = "autoNextPage"
+    /// Only key that isn't a property name. Read once, on decode: the old
+    /// `autoNextPage` spelling of `autoNextScript`.
+    private enum LegacyKeys: String, CodingKey {
+        case autoNextPage
     }
 
     /// Tolerant decode: every field falls back to its default, so one
@@ -193,6 +214,7 @@ public struct CueSettings: Codable, Equatable, Sendable {
     /// (The old `autoNextPage` key migrates into `autoNextScript`.)
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        let legacy = try decoder.container(keyedBy: LegacyKeys.self)
         func decode<T: Decodable>(_ key: CodingKeys, default value: T) -> T {
             (try? c.decodeIfPresent(T.self, forKey: key)) ?? value
         }
@@ -215,7 +237,7 @@ public struct CueSettings: Codable, Equatable, Sendable {
         showElapsed = decode(.showElapsed, default: defaults.showElapsed)
         hideFromShare = decode(.hideFromShare, default: defaults.hideFromShare)
         autoNextScript = decode(.autoNextScript, default: defaults.autoNextScript)
-            || decode(.legacyAutoNextPage, default: false)
+            || ((try? legacy.decodeIfPresent(Bool.self, forKey: .autoNextPage)) ?? nil) == true
         pageSize = decode(.pageSize, default: defaults.pageSize)
         fixedDisplayIndex = decode(.fixedDisplayIndex, default: defaults.fixedDisplayIndex)
         hideMainWhilePresenting = decode(.hideMainWhilePresenting, default: defaults.hideMainWhilePresenting)
@@ -236,6 +258,8 @@ public struct CueSettings: Codable, Equatable, Sendable {
         pauseOnPauseCues = decode(.pauseOnPauseCues, default: defaults.pauseOnPauseCues)
         smartPause = decode(.smartPause, default: defaults.smartPause)
         releaseFollowOnScroll = decode(.releaseFollowOnScroll, default: defaults.releaseFollowOnScroll)
+        shortcuts = decode(.shortcuts, default: defaults.shortcuts)
+        globalHotkeys = decode(.globalHotkeys, default: defaults.globalHotkeys)
         readingWidth = decode(.readingWidth, default: defaults.readingWidth)
         textAlignment = decode(.textAlignment, default: defaults.textAlignment)
         smoothScroll = decode(.smoothScroll, default: defaults.smoothScroll)
@@ -246,98 +270,9 @@ public struct CueSettings: Codable, Equatable, Sendable {
         showProgress = decode(.showProgress, default: defaults.showProgress)
         showCenterLine = decode(.showCenterLine, default: defaults.showCenterLine)
     }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(guidance, forKey: .guidance)
-        try c.encode(speechLanguage, forKey: .speechLanguage)
-        try c.encode(transcriptionEngine, forKey: .transcriptionEngine)
-        try c.encode(fontFamily, forKey: .fontFamily)
-        try c.encode(textSize, forKey: .textSize)
-        try c.encode(prompterScale, forKey: .prompterScale)
-        try c.encode(highlight, forKey: .highlight)
-        try c.encode(cueColor, forKey: .cueColor)
-        try c.encode(cueBrightness, forKey: .cueBrightness)
-        try c.encode(overlayWidth, forKey: .overlayWidth)
-        try c.encode(overlayHeight, forKey: .overlayHeight)
-        try c.encode(overlayMode, forKey: .overlayMode)
-        try c.encode(displayTarget, forKey: .displayTarget)
-        try c.encode(transparencyEnabled, forKey: .transparencyEnabled)
-        try c.encode(transparencyAmount, forKey: .transparencyAmount)
-        try c.encode(showElapsed, forKey: .showElapsed)
-        try c.encode(hideFromShare, forKey: .hideFromShare)
-        try c.encode(autoNextScript, forKey: .autoNextScript)
-        try c.encode(pageSize, forKey: .pageSize)
-        try c.encode(fixedDisplayIndex, forKey: .fixedDisplayIndex)
-        try c.encode(hideMainWhilePresenting, forKey: .hideMainWhilePresenting)
-        try c.encode(alwaysOnTop, forKey: .alwaysOnTop)
-        try c.encode(floatingOriginX, forKey: .floatingOriginX)
-        try c.encode(floatingOriginY, forKey: .floatingOriginY)
-        try c.encode(fontWeight, forKey: .fontWeight)
-        try c.encode(textColor, forKey: .textColor)
-        try c.encode(surfaceStyle, forKey: .surfaceStyle)
-        try c.encode(lineSpacing, forKey: .lineSpacing)
-        try c.encode(paragraphSpacing, forKey: .paragraphSpacing)
-        try c.encode(letterSpacing, forKey: .letterSpacing)
-        try c.encode(scrollSpeed, forKey: .scrollSpeed)
-        try c.encode(wordsPerMinute, forKey: .wordsPerMinute)
-        try c.encode(popOutOnPlay, forKey: .popOutOnPlay)
-        try c.encode(naturalPacing, forKey: .naturalPacing)
-        try c.encode(catchUpBoost, forKey: .catchUpBoost)
-        try c.encode(pauseOnPauseCues, forKey: .pauseOnPauseCues)
-        try c.encode(smartPause, forKey: .smartPause)
-        try c.encode(releaseFollowOnScroll, forKey: .releaseFollowOnScroll)
-        try c.encode(readingWidth, forKey: .readingWidth)
-        try c.encode(textAlignment, forKey: .textAlignment)
-        try c.encode(smoothScroll, forKey: .smoothScroll)
-        try c.encode(highlightCurrent, forKey: .highlightCurrent)
-        try c.encode(highlightStyle, forKey: .highlightStyle)
-        try c.encode(showCues, forKey: .showCues)
-        try c.encode(hidePunctuation, forKey: .hidePunctuation)
-        try c.encode(showProgress, forKey: .showProgress)
-        try c.encode(showCenterLine, forKey: .showCenterLine)
-    }
 }
 
-@MainActor
-@Observable
-public final class SettingsStore {
-    public var settings: CueSettings {
-        didSet { scheduleSave() }
-    }
-    private let defaultsKey = "Cuebar.settings.v5"
-    private var saveTask: Task<Void, Never>?
-
-    public init() {
-        if let data = UserDefaults.standard.data(forKey: defaultsKey),
-           let decoded = try? JSONDecoder().decode(CueSettings.self, from: data) {
-            settings = decoded
-        } else {
-            settings = CueSettings()
-        }
-    }
-
-    public init(inMemory settings: CueSettings) {
-        self.settings = settings
-    }
-
-    public func reset() { settings = CueSettings() }
-
-    /// Coalesced persistence. Sliders write settings at drag rate (60+
-    /// mutations a second); encoding the whole struct and hitting
-    /// UserDefaults for each one is pure churn, so writes collapse into
-    /// the latest state a beat after the last change.
-    private func scheduleSave() {
-        saveTask?.cancel()
-        saveTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            self?.save()
-        }
-    }
-
-    private func save() {
-        saveTask = nil
-        try? UserDefaults.standard.set(JSONEncoder().encode(settings), forKey: defaultsKey)
-    }
-}
+// Encoding is synthesised. The hand-written `encode(to:)` that used to mirror
+// the property list was 50 lines that could silently drift from the struct;
+// the one non-obvious key (`autoNextPage`) is decode-only, which a synthesised
+// encoder skips for free.

@@ -16,12 +16,7 @@ struct SidebarView: View {
     @State private var showingNewCategory = false
     @State private var newCategoryName = ""
     @State private var pendingCategoryDoc: UUID? = nil
-
-    private static let countFormatter: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        return f
-    }()
+    @State private var hoveringNew = false
 
     private var searched: [ScriptDocument] {
         guard !search.isEmpty else { return scripts.scripts }
@@ -31,10 +26,7 @@ struct SidebarView: View {
         }
     }
 
-    private var visible: [ScriptDocument] {
-        guard let filter else { return searched }
-        return searched.filter { $0.category == filter }
-    }
+
 
     private var countsByCategory: [String: Int] {
         var counts: [String: Int] = [:]
@@ -44,31 +36,52 @@ struct SidebarView: View {
         return counts
     }
 
+    private func visible(from docs: [ScriptDocument]) -> [ScriptDocument] {
+        guard let filter else { return docs }
+        return docs.filter { $0.category == filter }
+    }
+
     /// Scripts under each folder for the tree, honoring the search text.
-    private func scripts(in category: String) -> [ScriptDocument] {
-        searched.filter { $0.category == category }
+    private func scripts(in category: String, from docs: [ScriptDocument]) -> [ScriptDocument] {
+        docs.filter { $0.category == category }
     }
 
     var body: some View {
+        // Computed once per body pass: these were `private var`s read 5-11
+        // times below, and each read re-filtered every script body.
+        let searched = searched
+        let visible = visible(from: searched)
+        let counts = countsByCategory
         VStack(spacing: 0) {
-            // The traffic lights float over this corner (hidden title
-            // bar), Codex-style — keep clear of them.
-            Color.clear.frame(height: 30)
+            // Clears the traffic lights, which float over this corner.
+            // The band is the height of the content column's floating
+            // chrome, so the library starts under the toolbar row instead
+            // of beside it — and the pill is a control, not a divider, so
+            // putting the two on one line would misread as a header.
+            Color.clear.frame(height: CuePalette.chromeRowHeight)
             // Action row: the sidebar's primary verb, Codex-style.
             Button(action: onNew) {
                 HStack(spacing: 8) {
                     Image(systemName: "square.and.pencil")
                         .font(.callout)
                     Text("New script")
-                        .font(.callout)
+                        .font(.callout.weight(.medium))
                     Spacer()
                 }
                 .foregroundStyle(CuePalette.ink)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .contentShape(Rectangle())
+                .padding(.vertical, 8)
+                .glassSurface(in: RoundedRectangle(cornerRadius: 10), interactive: true)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(hoveringNew ? CuePalette.peach.opacity(0.35) : CuePalette.hairline,
+                                      lineWidth: 1)
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.plain)
+            .onHover { hoveringNew = $0 }
+            .animation(.easeOut(duration: 0.12), value: hoveringNew)
             .accessibilityLabel("New script")
             .help("New script (Cmd-N)")
             .padding(.horizontal, 10)
@@ -80,10 +93,12 @@ struct SidebarView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Library")
-                        .font(.caption.weight(.semibold))
+                        .font(.caption2.weight(.bold))
+                        .tracking(1.1)
+                        .textCase(.uppercase)
                         .foregroundStyle(CuePalette.muted)
                         .padding(.leading, 10)
-                        .padding(.top, 12)
+                        .padding(.top, 14)
                         .padding(.bottom, 6)
                     LibraryFolder(name: "All Scripts",
                                   count: scripts.scripts.count,
@@ -93,12 +108,12 @@ struct SidebarView: View {
                     // One folder per category; scripts nest beneath.
                     ForEach(scripts.knownCategories, id: \.self) { category in
                         LibraryFolder(name: category,
-                                      count: countsByCategory[category] ?? 0,
+                                      count: counts[category] ?? 0,
                                       selected: filter == category) {
                             filter = (filter == category) ? nil : category
                         }
                     if filter == nil || filter == category {
-                        ForEach(scripts(in: category)) { doc in
+                        ForEach(scripts(in: category, from: searched)) { doc in
                             ScriptRow(
                                 doc: doc,
                                 selected: doc.id == scripts.selectedID,
@@ -129,6 +144,9 @@ struct SidebarView: View {
                 .padding(.bottom, 10)
             }
         }
+        // Same opt-out as the content column, so the library starts level
+        // with the canvas instead of a title-bar's worth of margin lower.
+        .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 200, idealWidth: 240, maxWidth: 300)
         .alert("New category", isPresented: $showingNewCategory) {
             TextField("Name", text: $newCategoryName)
@@ -154,6 +172,7 @@ struct LibraryFolder: View {
     let count: Int
     let selected: Bool
     var action: () -> Void
+    @State private var hovered = false
 
     var body: some View {
         Button(action: action) {
@@ -164,7 +183,7 @@ struct LibraryFolder: View {
                     .frame(width: 16)
                 Text(name)
                     .font(.callout.weight(selected ? .medium : .regular))
-                    .foregroundStyle(CuePalette.ink)
+                    .foregroundStyle(selected ? CuePalette.ink : CuePalette.ink.opacity(0.9))
                     .lineLimit(1)
                 Spacer()
                 Text("\(count)")
@@ -173,11 +192,14 @@ struct LibraryFolder: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(selected ? CuePalette.card : Color.clear,
+            .background(selected ? CuePalette.selection
+                        : (hovered ? CuePalette.hover : Color.clear),
                         in: RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovered)
     }
 }
 
@@ -240,7 +262,8 @@ struct ScriptRow: View {
         .padding(.leading, 14)
         .padding(.trailing, 6)
         .padding(.vertical, 6)
-        .background(selected ? CuePalette.card : Color.clear,
+        .background(selected ? CuePalette.selection
+                    : (hovered ? CuePalette.hover : Color.clear),
                     in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
         .onTapGesture { onPick() }
@@ -268,7 +291,7 @@ struct SearchField: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(CuePalette.muted)
             TextField("Search", text: $text).textFieldStyle(.plain)
             if !text.isEmpty {
                 Button(action: { text = "" }) { Image(systemName: "xmark.circle.fill") }
@@ -277,7 +300,11 @@ struct SearchField: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.vertical, 7)
         .glassSurface(in: RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(CuePalette.hairline, lineWidth: 1)
+        }
     }
 }

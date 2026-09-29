@@ -27,6 +27,8 @@ struct MicStatus: View {
     }
 
     private var dot: Color {
+        // A mute is a decision, not a failure — it must not look like one.
+        if voice.isMutedByUser { return CuePalette.muted }
         switch voice.state {
         case .listening:
             return voice.isSpeaking ? CuePalette.live : CuePalette.peach
@@ -40,6 +42,7 @@ struct MicStatus: View {
     }
 
     private var label: String {
+        if voice.isMutedByUser { return "Muted" }
         switch voice.state {
         case .listening:
             return voice.isSpeaking ? "Hearing you" : "Listening…"
@@ -55,6 +58,9 @@ struct MicStatus: View {
     }
 
     private var help: String {
+        if voice.isMutedByUser {
+            return "Muted on purpose — the prompter runs on the reading clock. Toggle Microphone to bring it back."
+        }
         switch voice.state {
         case .denied:
             return "Allow Microphone + Speech Recognition in System Settings, then press Play again. Timer mode takes over meanwhile."

@@ -24,10 +24,11 @@ import PromptCore
     }
 
     @Test func cuesRideWithNextWord() {
-        let tokens = ScriptParser.parse("one two [pause] three four")
-        let pages = ReadingWindow.tokenPages(tokens, pageSize: 2)
-        // words: one(0) two(1) | three(2) four(3); cue joins page 1 with "three"
-        #expect(pages == [0, 0, 1, 1, 1])
+        // words: one(0) two(1) | three(2) four(3); the cue joins page 1
+        // with "three", so page 1's token slice starts before the word.
+        let index = ScriptIndex(tokens: ScriptParser.parse("one two [pause] three four"))
+        #expect(index.pageTokenRange(page: 0, pageSize: 2) == 0..<2)
+        #expect(index.pageTokenRange(page: 1, pageSize: 2) == 2..<5)
     }
 
     @Test func islandIsTopFlush() {
@@ -68,8 +69,9 @@ import PromptCore
         #expect(ReadingWindow.pauseCueWordIndices(tokens) == [1])
         let polite = ScriptParser.parse("one [smile] two")
         #expect(ReadingWindow.pauseCueWordIndices(polite).isEmpty)
+        // A trailing cue waits at the last word rather than being dropped.
         let trailing = ScriptParser.parse("one two [pause]")
-        #expect(ReadingWindow.pauseCueWordIndices(trailing).isEmpty)
+        #expect(ReadingWindow.pauseCueWordIndices(trailing) == [1])
     }
 
     @Test func timedCuesHoldTheNextWord() {
@@ -88,17 +90,112 @@ import PromptCore
     }
 
     @Test func pauseCueRecognition() {
-        #expect(ReadingWindow.isPauseCue("[pause]") == true)
-        #expect(ReadingWindow.isPauseCue("[wait for laughter]") == true)
-        #expect(ReadingWindow.isPauseCue("[hold]") == true)
-        #expect(ReadingWindow.isPauseCue("[smile]") == false)
+        func isPause(_ raw: String) -> Bool {
+            ReadingWindow.isPauseCue(ScriptCue.interpret(raw))
+        }
+        #expect(isPause("[pause]"))
+        #expect(isPause("[wait for laughter]"))   // "break" is a pause too
+        #expect(isPause("[hold]"))
+        #expect(isPause("[stop]"))
+        #expect(!isPause("[smile]"))
+    }
+
+    // MARK: - Cue plan (one pass, one answer for holds / pauses / jumps)
+
+    @Test func directionCueDoesNotCancelAPendingWait() {
+        // [pause 2s][smile] word — the smile is a stage direction, not a
+        // reason to drop the two-second hold the presenter asked for.
+        let plan = ScriptIndex(tokens: ScriptParser.parse("a [pause 2s][smile] b")).cuePlan
+        #expect(plan.holds == [1: 2.0])
+        #expect(plan.indices == [1])
+    }
+
+    @Test func trailingCueWaitsAtTheEnd() {
+        let plan = ScriptIndex(tokens: ScriptParser.parse("a b [pause 2s]")).cuePlan
+        #expect(plan.holds == [1: 2.0])   // the last word
+        #expect(plan.indices == [1])      // and it is still a legal jump target
+        let bare = ScriptIndex(tokens: ScriptParser.parse("a b [pause]")).cuePlan
+        #expect(bare.pauses == [1])
+        #expect(ScriptIndex(tokens: ScriptParser.parse("[smile]")).cuePlan.indices.isEmpty)
+    }
+
+    @Test func adjacentCuesShareOneTarget() {
+        let plan = ScriptIndex(tokens: ScriptParser.parse("a [smile][emphasis][pause 2s] b")).cuePlan
+        #expect(plan.indices == [1])
+        #expect(plan.holds == [1: 2.0])
+    }
+
+    @Test func everyCueTargetIsARealWordIndex() {
+        // The trailing cue is the case that bites: an out-of-range target
+        // would make Jump-to-cue stop playback at the end of the script.
+        let text = "one [smile] two\n\n[breath 1.5] three [pause] four [drink] five [pause 2s]"
+        let plan = ScriptIndex(tokens: ScriptParser.parse(text)).cuePlan
+        let words = ScriptParser.words(text).count
+        #expect(plan.indices.allSatisfy { $0 < words })
+        // Everything executable is also jumpable. (The reverse isn't true:
+        // a [drink] is a badge, not a behaviour.)
+        #expect(Set(plan.holds.keys).union(plan.pauses).isSubset(of: Set(plan.indices)))
+    }
+
+    @Test func scriptWithoutCuesHasAnEmptyPlan() {
+        let plan = ScriptIndex(tokens: ScriptParser.parse("just words here")).cuePlan
+        #expect(plan.isEmpty)
+        #expect(plan.holds.isEmpty)
+        #expect(plan.pauses.isEmpty)
+    }
+
+    @Test func cueBeforeAParagraphBreakRidesToTheNextWord() {
+        let plan = ScriptIndex(tokens: ScriptParser.parse("one two [pause 2s]\n\nthree four")).cuePlan
+        #expect(plan.holds == [2: 2.0])
+    }
+
+    @Test func jumpWordsConvertsSecondsAtTheCurrentSpeed() {
+        #expect(ReadingWindow.jumpWords(forSeconds: 10, wordsPerSecond: 2.5) == 25)
+        #expect(ReadingWindow.jumpWords(forSeconds: -10, wordsPerSecond: 2.5) == -25)
+        #expect(ReadingWindow.jumpWords(forSeconds: 10, wordsPerSecond: 0.5) == 5)
+        #expect(ReadingWindow.jumpWords(forSeconds: .nan, wordsPerSecond: 2.5) == 0)
+    }
+
+    // MARK: - Cue jumps (Next / Previous Cue)
+
+
+    private let tokens = ScriptParser.parse("one two [smile] three four [pause 2s] five")
+
+    @Test func cueIndicesPointAtTheFollowingWord() {
+        #expect(ReadingWindow.cueWordIndices(tokens) == [2, 4])
+    }
+
+    @Test func scriptWithoutCuesHasNowhereToJump() {
+        #expect(ReadingWindow.cueWordIndices(ScriptParser.parse("just words here")) == [])
+        #expect(ReadingWindow.nextCueWordIndex(after: 0, in: []) == nil)
+        #expect(ReadingWindow.previousCueWordIndex(before: 0, in: []) == nil)
+    }
+
+    @Test func nextCueMovesForwardThenWraps() {
+        let indices = ReadingWindow.cueWordIndices(tokens)
+        #expect(ReadingWindow.nextCueWordIndex(after: 0, in: indices) == 2)
+        #expect(ReadingWindow.nextCueWordIndex(after: 2, in: indices) == 4)
+        #expect(ReadingWindow.nextCueWordIndex(after: 4, in: indices) == 2) // wraps
+    }
+
+    @Test func previousCueMovesBackThenWraps() {
+        let indices = ReadingWindow.cueWordIndices(tokens)
+        #expect(ReadingWindow.previousCueWordIndex(before: 5, in: indices) == 4)
+        #expect(ReadingWindow.previousCueWordIndex(before: 4, in: indices) == 2)
+        #expect(ReadingWindow.previousCueWordIndex(before: 0, in: indices) == 4) // wraps
+    }
+
+    @Test func fromAnUnknownPositionJumpToTheNearestEdge() {
+        let indices = ReadingWindow.cueWordIndices(tokens)
+        #expect(ReadingWindow.nextCueWordIndex(after: nil, in: indices) == 2)
+        #expect(ReadingWindow.previousCueWordIndex(before: nil, in: indices) == 4)
     }
 
     // MARK: - pageParagraphRows (single-pass render grouping)
 
     @Test func pageRowsSplitOnParagraphs() {
         let tokens = ScriptParser.parse("one two\n\nthree four")
-        let rows = ReadingWindow.pageParagraphRows(tokens, page: 0, pageSize: 4, showCues: true)
+        let rows = ScriptIndex(tokens: tokens).pageParagraphRows(page: 0, pageSize: 4, showCues: true)
         #expect(rows.count == 2)
         #expect(rows[0].map(\.token) == [.word("one"), .word("two")])
         #expect(rows[1].map(\.wordIndex) == [2, 3])
@@ -106,29 +203,52 @@ import PromptCore
 
     @Test func pageRowsSkipOtherPages() {
         let tokens = ScriptParser.parse("one two three four")
-        let rows = ReadingWindow.pageParagraphRows(tokens, page: 1, pageSize: 2, showCues: true)
+        let rows = ScriptIndex(tokens: tokens).pageParagraphRows(page: 1, pageSize: 2, showCues: true)
         #expect(rows.count == 1)
         #expect(rows[0].map(\.wordIndex) == [2, 3])
     }
 
     @Test func pageRowsHideCuesWhenAsked() {
         let tokens = ScriptParser.parse("one [smile] two")
-        let shown = ReadingWindow.pageParagraphRows(tokens, page: 0, pageSize: 2, showCues: true)
+        let shown = ScriptIndex(tokens: tokens).pageParagraphRows(page: 0, pageSize: 2, showCues: true)
         #expect(shown[0].count == 3)
-        let hidden = ReadingWindow.pageParagraphRows(tokens, page: 0, pageSize: 2, showCues: false)
+        let hidden = ScriptIndex(tokens: tokens).pageParagraphRows(page: 0, pageSize: 2, showCues: false)
         #expect(hidden[0].map(\.token) == [.word("one"), .word("two")])
     }
 
     @Test func pageRowsGlobalWordIndices() {
         // Word indexes keep counting across pages: page 2 starts at 4.
         let tokens = ScriptParser.parse("a b c d e f")
-        let rows = ReadingWindow.pageParagraphRows(tokens, page: 1, pageSize: 4, showCues: true)
+        let rows = ScriptIndex(tokens: tokens).pageParagraphRows(page: 1, pageSize: 4, showCues: true)
         #expect(rows[0].map(\.wordIndex) == [4, 5])
     }
 
     @Test func emptyPageStillRendersOneGroup() {
-        let rows = ReadingWindow.pageParagraphRows([], page: 0, pageSize: 300, showCues: true)
+        let rows = ScriptIndex(tokens: []).pageParagraphRows(page: 0, pageSize: 300, showCues: true)
         #expect(rows.count == 1)
         #expect(rows[0].isEmpty)
+    }
+}
+
+@Suite struct CuePlanIndexTests {
+    /// Every jump target must be a real, ascending, unique word index. A
+    /// target past the end would make Jump-to-cue *stop* playback.
+    @Test func targetsAreInRangeAscendingAndUnique() {
+        for text in ["a b [pause 2s]", "[smile]", "[pause 2s] a", "a [smile][pause 2s] b",
+                     "a [pause 2s]\n\nb", "", "[smile] a [smile]",
+                     "a b [pause] c [pause 2s]", "x [drink] y [smile] z [demo] w"] {
+            let plan = ScriptIndex(tokens: ScriptParser.parse(text)).cuePlan
+            let words = ScriptParser.words(text).count
+            #expect(plan.indices.allSatisfy { $0 >= 0 && $0 < words }, "out of range: \\(text)")
+            #expect(plan.indices == plan.indices.sorted(), "not ascending: \\(text)")
+            #expect(Set(plan.indices).count == plan.indices.count, "duplicate: \\(text)")
+        }
+    }
+
+    @Test func aScriptEndingInACueStillJumpsToItsLastWord() {
+        let plan = ScriptIndex(tokens: ScriptParser.parse("a b [pause 2s]")).cuePlan
+        let next = ReadingWindow.nextCueWordIndex(after: 0, in: plan.indices)
+        #expect(next == 1)
+        #expect(ReadingWindow.previousCueWordIndex(before: 0, in: plan.indices) == 1)
     }
 }

@@ -43,15 +43,50 @@ public enum SpeechMatcher: Sendable {
             .filter { !$0.isEmpty }
     }
 
-    /// Last `maxWords` words of a transcript, space-joined. Callers pass
-    /// this to `matchEnd`: drivers hand over the full accumulated session
-    /// text on every partial result, but the reading position only moves
-    /// forward, so old words are dead weight (and would be rescanned every
-    /// time — O(session²) over a long take).
+    /// Last `maxWords` space-separated words of a transcript, space-joined.
+    /// Callers pass this to `matchEnd`: drivers hand over the full
+    /// accumulated session text on every partial result, but the reading
+    /// position only moves forward, so old words are dead weight.
+    ///
+    /// Scans *backwards* and stops at the `maxWords`-th separator, so the
+    /// cost is the length of the tail rather than the length of the session
+    /// — `split` here would re-allocate every word of a long take on every
+    /// result (O(session²) end to end).
     public static func transcriptTail(_ transcript: String, maxWords: Int) -> String {
-        let parts = transcript.split(separator: " ")
-        guard parts.count > maxWords else { return transcript }
-        return parts.suffix(maxWords).joined(separator: " ")
+        guard maxWords > 0 else { return "" }
+        guard !transcript.isEmpty else { return transcript }
+        // Walk `String.Index` backwards — O(1) steps into the native string.
+        // Materialising `Array(transcript)` was O(session) *and* 16 bytes per
+        // character, on every partial recognition result.
+        var end = transcript.endIndex
+        while end > transcript.startIndex, transcript[transcript.index(before: end)] == " " {
+            end = transcript.index(before: end)
+        }
+        var scan = end
+        var words = 0
+        while scan > transcript.startIndex {
+            guard transcript[transcript.index(before: scan)] == " " else {
+                scan = transcript.index(before: scan)
+                continue
+            }
+            while scan > transcript.startIndex,
+                  transcript[transcript.index(before: scan)] == " " {
+                scan = transcript.index(before: scan)
+            }
+            guard scan > transcript.startIndex else { break }   // a leading run
+            words += 1
+            if words == maxWords {
+                var begin = scan
+                while begin < end, transcript[begin] == " " { begin = transcript.index(after: begin) }
+                // Re-join on single spaces: recognizers pad, and the contract
+                // is "the last N words", not "the last N characters".
+                return String(transcript[begin..<end])
+                    .split(separator: " ").joined(separator: " ")
+            }
+        }
+        // The whole transcript is within the tail; hand back the original so
+        // nothing is rewritten.
+        return transcript
     }
 
     // MARK: - Tolerant matching
@@ -101,6 +136,60 @@ public enum SpeechMatcher: Sendable {
     ///
     /// Minimum match: 2 words (except single-word scripts where 1
     /// suffices). This prevents stray articles from yanking the highlight.
+    /// A script, canonicalised once. Recognition fires partial results
+    /// dozens of times a second; canonicalising the whole script on each one
+    /// cost two `String` allocations per word of the *entire* script (a 5,000
+    /// word script: 10,000 allocations per result) to read a 40-word window.
+    public struct CanonicalScript: Sendable {
+        public struct Entry: Sendable {
+            public let index: Int
+            public let text: String
+        }
+
+        public let entries: [Entry]
+        public let wordCount: Int
+
+        public init(words: [String]) {
+            wordCount = words.count
+            entries = words.enumerated().compactMap { i, w in
+                let text = SpeechMatcher.canonical(w)
+                return text.isEmpty ? nil : Entry(index: i, text: text)
+            }
+        }
+
+        public var isEmpty: Bool { entries.isEmpty }
+
+        public func matchEnd(transcript: String,
+                             fromWordIndex: Int,
+                             windowSize: Int = 40,
+                             tolerant: Bool = true) -> Int? {
+            let transcriptWords = tolerant
+                ? SpeechMatcher.prepareTranscript(transcript)
+                : SpeechMatcher.tokenize(transcript)
+            guard !transcriptWords.isEmpty, !entries.isEmpty, windowSize > 0 else { return nil }
+            guard let first = entries.firstIndex(where: { $0.index >= fromWordIndex }) else { return nil }
+            let last = min(first + windowSize, entries.count)
+            let minMatch = entries.count == 1 ? 1 : 2
+
+            if !tolerant {
+                // Strict: original contiguous substring matching.
+                return SpeechMatcher.matchContiguous(
+                    transcriptWords: transcriptWords,
+                    canon: entries, first: first, last: last, minMatch: minMatch,
+                    wordCount: wordCount
+                )
+            }
+            // Tolerant: greedy subsequence scan.
+            return SpeechMatcher.matchSubsequence(
+                transcriptWords: transcriptWords,
+                canon: entries, first: first, last: last, minMatch: minMatch,
+                wordCount: wordCount
+            )
+        }
+    }
+
+    /// One-shot convenience. Prefer holding a `CanonicalScript` when matching
+    /// repeatedly against the same script.
     public static func matchEnd(
         transcript: String,
         words: [String],
@@ -108,42 +197,19 @@ public enum SpeechMatcher: Sendable {
         windowSize: Int = 40,
         tolerant: Bool = true
     ) -> Int? {
-        let transcriptWords = tolerant
-            ? prepareTranscript(transcript)
-            : tokenize(transcript)
-        guard !transcriptWords.isEmpty, !words.isEmpty, windowSize > 0 else { return nil }
-        let canon: [(index: Int, text: String)] = words.enumerated().compactMap { i, w in
-            let c = canonical(w)
-            return c.isEmpty ? nil : (i, c)
-        }
-        guard let first = canon.firstIndex(where: { $0.index >= fromWordIndex }) else { return nil }
-        let last = min(first + windowSize, canon.count)
-        let minMatch = canon.count == 1 ? 1 : 2
-
-        if !tolerant {
-            // Strict: original contiguous substring matching.
-            return matchContiguous(
-                transcriptWords: transcriptWords,
-                canon: canon, first: first, last: last, minMatch: minMatch,
-                wordCount: words.count
-            )
-        }
-
-        // Tolerant: greedy subsequence scan.
-        return matchSubsequence(
-            transcriptWords: transcriptWords,
-            canon: canon, first: first, last: last, minMatch: minMatch,
-            wordCount: words.count
-        )
+        CanonicalScript(words: words).matchEnd(transcript: transcript,
+                                               fromWordIndex: fromWordIndex,
+                                               windowSize: windowSize,
+                                               tolerant: tolerant)
     }
 
     // MARK: - Matching strategies
 
     /// Contiguous substring match (original behavior). The transcript
     /// tail must appear as an unbroken run in the script window.
-    private static func matchContiguous(
+    fileprivate static func matchContiguous(
         transcriptWords: [String],
-        canon: [(index: Int, text: String)],
+        canon: [CanonicalScript.Entry],
         first: Int, last: Int, minMatch: Int,
         wordCount: Int
     ) -> Int? {
@@ -170,9 +236,9 @@ public enum SpeechMatcher: Sendable {
     /// This naturally handles skipped words (pointer jumps), repeated
     /// words (duplicate transcript words match sequential script words),
     /// and filler-stripped transcripts (fillers never reach here).
-    private static func matchSubsequence(
+    fileprivate static func matchSubsequence(
         transcriptWords: [String],
-        canon: [(index: Int, text: String)],
+        canon: [CanonicalScript.Entry],
         first: Int, last: Int, minMatch: Int,
         wordCount: Int
     ) -> Int? {

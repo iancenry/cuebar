@@ -6,7 +6,7 @@ import PromptCore
 struct OverlayPanelView: View {
     @Bindable var engine: PromptEngine
     @Bindable var settings: SettingsStore
-    let tokens: [ScriptToken]
+    let index: ScriptIndex
     @Bindable var voice: VoiceTracker
     @Binding var follow: Bool
     var island: Bool = false
@@ -22,8 +22,9 @@ struct OverlayPanelView: View {
                         // The menu bar lives inside our top edge; start
                         // content below it so text never hides underneath.
                         Spacer().frame(height: menuBarHeight + 4)
-                        PrompterBody(engine: engine, tokens: tokens, settings: settings,
-                                     voice: voice, follow: $follow, surfaceOverride: .black, compact: true)
+                        PrompterBody(engine: engine, index: index, settings: settings,
+                                     voice: voice, follow: $follow,
+                                     surfaceOverride: .black, compact: true)
                     }
                     Button(action: onClose) {
                         Image(systemName: "xmark.circle.fill")
@@ -42,8 +43,8 @@ struct OverlayPanelView: View {
                 .frame(minWidth: settings.settings.overlayWidth,
                        minHeight: settings.settings.overlayHeight)
             } else {
-                PrompterBody(engine: engine, tokens: tokens, settings: settings, voice: voice,
-                             follow: $follow)
+                PrompterBody(engine: engine, index: index, settings: settings,
+                             voice: voice, follow: $follow)
                     .frame(minWidth: settings.settings.overlayWidth,
                            minHeight: settings.settings.overlayHeight)
             }

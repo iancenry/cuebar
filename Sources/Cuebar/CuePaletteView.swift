@@ -1,29 +1,10 @@
 import SwiftUI
 import PromptCore
 
-/// Shared kind → SF Symbol map (badges + the cue palette).
-extension ScriptCue {
-    static func iconName(for cue: String) -> String {
-        switch interpret(cue).kind {
-        case .pause: return "pause.fill"
-        case .wait: return "hourglass"
-        case .hold: return "hand.raised.fill"
-        case .breath: return "wind"
-        case .stop: return "stop.fill"
-        case .smile: return "face.smiling"
-        case .look: return "eye"
-        case .emphasis: return "exclamationmark"
-        case .demo: return "play.rectangle"
-        case .drink: return "drop"
-        case .slide: return "rectangle.on.rectangle"
-        case .other: return "tag"
-        }
-    }
-}
-
 /// ⌘K quick cue palette: pick a cue, the bracketed snippet lands at the
-/// editor's caret (or appends when nothing is focused). Rows show the
-/// exact text they insert so the syntax teaches itself.
+/// editor's caret (or appends when the editor isn't up — which is also what
+/// happens in Perform mode, where the insertion is committed straight to the
+/// script). Rows show the exact text they insert so the syntax teaches itself.
 struct CuePaletteView: View {
     var onInsert: (String) -> Void
     @State private var custom = ""
@@ -39,8 +20,10 @@ struct CuePaletteView: View {
     private static let options: [Option] = [
         Option(title: "Pause — 2 seconds", subtitle: "Holds playback, then continues",
                snippet: "pause 2s"),
-        Option(title: "Pause — wait for me", subtitle: "Auto-pauses until you press Play",
+        Option(title: "Pause — wait for me", subtitle: "Stops and waits for Play",
                snippet: "pause"),
+        Option(title: "Stop", subtitle: "Stops and waits for Play, like [pause]",
+               snippet: "stop"),
         Option(title: "Breath — 1.5 seconds", subtitle: "Quick beat to breathe",
                snippet: "breath 1.5"),
         Option(title: "Hold — 1 second", subtitle: "Beat before a key line",
@@ -55,6 +38,8 @@ struct CuePaletteView: View {
                snippet: "slide"),
         Option(title: "Drink", subtitle: "Water break",
                snippet: "drink"),
+        Option(title: "Demo", subtitle: "Switch to the live demo",
+               snippet: "demo"),
     ]
 
     var body: some View {

@@ -55,15 +55,40 @@ public struct ScriptCue: Equatable, Sendable {
         return ScriptCue(kind: kind, seconds: seconds, label: label)
     }
 
-    /// "2s" → 2, "500ms" → 0.5, "1.5" → 1.5, "2 sec" → 2 (the bare
-    /// number is the token before " sec" anyway). Caps at an hour so a
-    /// typo can't park the prompter for a day.
+    /// "2s" → 2, "500ms" → 0.5, "1.5" → 1.5, "2 sec" → 2. Capped at an
+    /// hour so a typo can't park the prompter for a day — the cap applies to
+    /// every suffix, not just the bare number.
     static func parseSeconds(_ raw: String) -> TimeInterval? {
         let s = raw.lowercased().trimmingCharacters(in: .whitespaces)
-        if s.hasSuffix("ms"), let v = Double(s.dropLast(2)), v > 0 { return v / 1000 }
-        if s.hasSuffix("sec"), let v = Double(s.dropLast(3)), v > 0 { return v }
-        if s.hasSuffix("s"), let v = Double(s.dropLast(1)), v > 0 { return v }
-        if let v = Double(s), v > 0, v <= 3600 { return v }
-        return nil
+        let seconds: TimeInterval?
+        if s.hasSuffix("ms"), let v = Double(s.dropLast(2)) { seconds = v / 1000 }
+        else if s.hasSuffix("sec"), let v = Double(s.dropLast(3)) { seconds = v }
+        else if s.hasSuffix("s"), let v = Double(s.dropLast(1)) { seconds = v }
+        else { seconds = Double(s) }
+        guard let seconds, seconds > 0, seconds <= Self.maxSeconds else { return nil }
+        return seconds
+    }
+
+    /// Longest wait a cue can ask for.
+    static let maxSeconds: TimeInterval = 3600
+}
+
+/// Shared kind → SF Symbol map (badges + the cue palette).
+extension ScriptCue {
+    public static func iconName(for cue: String) -> String {
+        switch interpret(cue).kind {
+        case .pause: return "pause.fill"
+        case .wait: return "hourglass"
+        case .hold: return "hand.raised.fill"
+        case .breath: return "wind"
+        case .stop: return "stop.fill"
+        case .smile: return "face.smiling"
+        case .look: return "eye"
+        case .emphasis: return "exclamationmark"
+        case .demo: return "play.rectangle"
+        case .drink: return "drop"
+        case .slide: return "rectangle.on.rectangle"
+        case .other: return "tag"
+        }
     }
 }

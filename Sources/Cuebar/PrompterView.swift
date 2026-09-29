@@ -9,7 +9,9 @@ import AppKit
 /// script never builds 5,000 views.
 struct PrompterBody: View {
     @Bindable var engine: PromptEngine
-    let tokens: [ScriptToken]
+    /// One parse of this script: page arithmetic, cue behaviour and the
+    /// token list all come from it, so no body pass walks the script again.
+    let index: ScriptIndex
     @Bindable var settings: SettingsStore
     @Bindable var voice: VoiceTracker
     @Binding var follow: Bool
@@ -26,42 +28,63 @@ struct PrompterBody: View {
     /// Page navigation renders even without the footer — the main
     /// window has no other page controls.
     var showsPageControls: Bool = true
+    /// Extra bottom room when a floating dock overlays the page (main
+    /// window only) so page controls never hide underneath it.
+    var bottomInset: CGFloat = 0
+    /// Room for the floating chrome. The band has no surface of its own —
+    /// the canvas runs to the window top under it — so the page is inset
+    /// instead of being covered, and stays centred in what is left.
+    var topInset: CGFloat = 0
     @State private var page = 0
 #if os(macOS)
     @State private var wheelMonitor: Any?
 #endif
 
     private var pageSize: Int { settings.settings.clampedPageSize }
-    private var wordCount: Int { tokens.reduce(0) { $0 + ($1.isWord ? 1 : 0) } }
-    private var pageCount: Int { ReadingWindow.pageCount(wordCount: wordCount, pageSize: pageSize) }
     private var fontSize: Double { settings.settings.textSize.points * settings.settings.prompterScale }
 
-    private var enginePage: Int {
-        ReadingWindow.pageIndex(forWord: engine.currentWordIndex, wordCount: wordCount, pageSize: pageSize)
-    }
-
-    private var visiblePage: Int {
-        follow ? enginePage : min(max(0, page), max(0, pageCount - 1))
+    private var metrics: PrompterMetrics {
+        PrompterMetrics(index: index, pageSize: pageSize,
+                        currentWord: engine.currentWordIndex, follow: follow, page: page)
     }
 
     /// The main window's TopBar owns status; the overlay keeps its own.
     var showsHeader: Bool = true
 
     var body: some View {
+        let metrics = metrics
         VStack(spacing: 0) {
             if showsHeader {
                 header
             }
             ScrollViewReader { proxy in
                 ZStack(alignment: .center) {
+                    // The guide line marks where the current word tracks
+                    // (scroll anchors words to the vertical center). It
+                    // renders *behind* the text and fades at the margins —
+                    // a hard rule across glyphs read as a stray underline.
+                    // Meaningless while browsing with Follow off, and
+                    // over an empty document.
+                    if settings.settings.showCenterLine, follow, !index.isEmpty {
+                        Rectangle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [.clear, CuePalette.peach.opacity(0.18), .clear],
+                                    startPoint: .leading, endPoint: .trailing)
+                            )
+                            .frame(height: 1)
+                            .padding(.horizontal, 24)
+                            .allowsHitTesting(false)
+                    }
                     GeometryReader { geo in
                         ScrollView {
                             Group {
-                                if tokens.isEmpty {
+                                if index.isEmpty {
                                     ContentUnavailableView("Nothing to prompt", systemImage: "text.alignleft",
                                         description: Text("Write a script in Edit mode or pick one on the left."))
                                 } else {
-                                    TokenPageView(engine: engine, tokens: tokens, page: visiblePage,
+                                    TokenPageView(engine: engine, index: index,
+                                                  page: metrics.visiblePage,
                                                   pageSize: pageSize, settings: settings.settings)
                                     .padding(.horizontal, 32)
                                     .padding(.vertical, 24)
@@ -74,17 +97,7 @@ struct PrompterBody: View {
                             // top with a wall of empty space below.
                             .frame(minHeight: geo.size.height, alignment: .center)
                         }
-                    }
-                    // The guide line marks where the current word tracks
-                    // (scroll anchors words to the vertical center). It's
-                    // meaningless while browsing with Follow off, and
-                    // over an empty document.
-                    if settings.settings.showCenterLine, follow, !tokens.isEmpty {
-                        Rectangle()
-                            .fill(CuePalette.peach.opacity(0.25))
-                            .frame(height: 1)
-                            .padding(.horizontal, 24)
-                            .allowsHitTesting(false)
+                        .padding(.top, topInset)
                     }
                     // Teleprompter fades: text glides under the chrome at
                     // both edges instead of hard-clipping.
@@ -116,7 +129,7 @@ struct PrompterBody: View {
                     // guide line immediately — otherwise it waited for the
                     // next word change before scrolling at all.
                     guard new else { return }
-                    page = enginePage
+                    page = metrics.enginePage
                     guard let idx = engine.currentWordIndex else { return }
                     DispatchQueue.main.async {
                         if settings.settings.smoothScroll {
@@ -129,10 +142,11 @@ struct PrompterBody: View {
                     }
                 }
             }
-            if showsPageControls, pageCount > 1 {
-                PageControls(page: visiblePage, count: pageCount, follow: follow,
+            if showsPageControls, metrics.pageCount > 1 {
+                PageControls(page: metrics.visiblePage, count: metrics.pageCount, follow: follow,
                              onPrev: { go(page - 1) }, onNext: { go(page + 1) },
                              onFollow: { follow = true })
+                    .padding(.bottom, bottomInset)
             }
             if showsFooter, voice.state == .listening || settings.settings.showProgress {
                 HStack(spacing: 12) {
@@ -199,7 +213,8 @@ struct PrompterBody: View {
     private func headerRow(showSpeed: Bool) -> some View {
         HStack(spacing: 12) {
             StatusPill(isPlaying: engine.isPlaying, showElapsed: settings.settings.showElapsed,
-                       holdRemaining: engine.holdRemaining)
+                       holdRemaining: engine.holdRemaining,
+                       pauseReason: engine.pauseReason)
             if settings.settings.guidance.usesVoice {
                 MicStatus(voice: voice, compact: compact || !showSpeed)
             }
@@ -213,7 +228,7 @@ struct PrompterBody: View {
                 Stepper("Speed", value: Binding(
                     get: { settings.settings.wordsPerMinute },
                     set: {
-                        settings.settings.wordsPerMinute = min(480, max(30, $0))
+                        settings.settings.setWordsPerMinute($0)
                         engine.setSpeed(settings.settings.wordsPerSecond)
                     }
                 ), in: 30...480, step: 5).labelsHidden().controlSize(.small)
@@ -228,183 +243,6 @@ struct PrompterBody: View {
 
     private func go(_ p: Int) {
         follow = false
-        page = min(max(0, p), max(0, pageCount - 1))
-    }
-}
-
-struct PageControls: View {
-    let page: Int
-    let count: Int
-    let follow: Bool
-    var onPrev: () -> Void
-    var onNext: () -> Void
-    var onFollow: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Button(action: onPrev) { Image(systemName: "chevron.left") }
-                .buttonStyle(.borderless).disabled(page <= 0)
-                .accessibilityLabel("Previous page")
-            Text("Page \(page + 1) of \(count)")
-                .font(.caption).foregroundStyle(CuePalette.muted).monospacedDigit()
-            Button(action: onNext) { Image(systemName: "chevron.right") }
-                .buttonStyle(.borderless).disabled(page >= count - 1)
-                .accessibilityLabel("Next page")
-            if !follow {
-                Button("Resume follow", action: onFollow)
-                    .font(.caption).buttonStyle(.link)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .glassSurface(in: Capsule())
-        .padding(.vertical, 6)
-    }
-}
-
-/// Page renderer with real paragraph gaps. Each paragraph is its own
-/// FlowLayout; the VStack spacing is paragraphSpacing × fontSize so the
-/// Typography slider is immediately visible in the prompter. Rows come
-/// from ReadingWindow.pageParagraphRows (one tested pass; cues filtered).
-struct TokenPageView: View {
-    @Bindable var engine: PromptEngine
-    let tokens: [ScriptToken]
-    let page: Int
-    let pageSize: Int
-    let settings: CueSettings
-
-    private var fontSize: Double { settings.textSize.points * settings.prompterScale }
-
-    var body: some View {
-        let groups = ReadingWindow.pageParagraphRows(tokens, page: page,
-                                                     pageSize: pageSize,
-                                                     showCues: settings.showCues)
-        let current = engine.currentWordIndex ?? -1
-        VStack(alignment: settings.textAlignment == .center ? .center : .leading,
-               spacing: fontSize * settings.clampedParagraphSpacing) {
-            ForEach(Array(groups.enumerated()), id: \.offset) { _, para in
-                FlowLayout(spacing: max(6, fontSize * 0.22),
-                           lineSpacing: fontSize * settings.lineSpacing) {
-                    ForEach(Array(para.enumerated()), id: \.offset) { _, row in
-                        switch row.token {
-                        case .word(let w):
-                            WordPill(word: w,
-                                     isPast: row.wordIndex < current,
-                                     isCurrent: row.wordIndex == current,
-                                     settings: settings,
-                                     fontSize: fontSize)
-                                .id("w-\(row.wordIndex)")
-                                .onTapGesture { engine.jumpTo(wordIndex: row.wordIndex) }
-                        case .cue(let c):
-                            CueBadge(text: CueBadge.label(for: c), settings: settings, fontSize: fontSize)
-                        case .paragraphBreak:
-                            EmptyView()
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Pink stage-direction badge. Shared by the prompter and the settings
-/// preview. Each cue kind gets its own symbol so a script reads at a
-/// glance: [pause] shows the pause glyph, [drink] a drop, [slide] the
-/// slides — all tinted by the configured cue color.
-struct CueBadge: View {
-    let text: String
-    let settings: CueSettings
-    let fontSize: Double
-
-    /// "[pause 2s]" renders as a badge reading "pause 2s".
-    static func label(for cue: String) -> String {
-        ScriptCue.interpret(cue).label
-    }
-
-    private var icon: String? {
-        ScriptCue.iconName(for: text)
-    }
-
-    var body: some View {
-        HStack(spacing: 3) {
-            if let icon {
-                Image(systemName: icon)
-                    .font(settings.fontFamily.font(size: fontSize * 0.55, weight: .semibold))
-            }
-            Text(text)
-                .font(settings.fontFamily.font(size: fontSize * 0.72, weight: .semibold).italic())
-        }
-        .foregroundStyle(settings.cueColor.color)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 3)
-        .background(settings.cueColor.color.opacity(settings.cueBrightness.badgeOpacity),
-                    in: Capsule())
-        .help("Stage cue — timed cues hold playback automatically")
-    }
-}
-
-struct WordPill: View {
-    let word: String
-    let isPast: Bool
-    let isCurrent: Bool
-    let settings: CueSettings
-    let fontSize: Double
-
-    private var highlighted: Bool { isCurrent && settings.highlightCurrent }
-
-    private var display: String {
-        guard settings.hidePunctuation else { return word }
-        let stripped = word.filter { $0.isLetter || $0.isNumber || $0 == "'" || $0 == "’" }
-        return stripped.isEmpty ? word : stripped
-    }
-
-    private var font: Font {
-        settings.fontFamily.font(size: fontSize,
-                                 weight: isCurrent ? .bold : settings.fontWeight.weight)
-    }
-
-    private var tracking: CGFloat {
-        settings.fontFamily.tracking + CGFloat(settings.letterSpacing)
-    }
-
-    var body: some View {
-        Group {
-            switch (highlighted, settings.highlightStyle) {
-            case (true, .pill):
-                Text(display)
-                    .foregroundStyle(CuePalette.onHighlight)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(settings.highlight.color, in: RoundedRectangle(cornerRadius: 12))
-            case (true, .underline):
-                Text(display)
-                    .foregroundStyle(settings.textColor.color)
-                    .underline(true, color: settings.highlight.color)
-            case (true, .bold), (false, _):
-                Text(display)
-                    .foregroundStyle(isCurrent ? settings.textColor.color
-                        : (isPast ? CuePalette.muted.opacity(0.6) : settings.textColor.color))
-            }
-        }
-        .font(font)
-        .tracking(tracking)
-        .accessibilityLabel(word)
-        .accessibilityAddTraits(isCurrent ? .isSelected : [])
-    }
-}
-
-struct ElapsedClock: View {
-    @State private var start = Date()
-
-    var body: some View {
-        TimelineView(.periodic(from: start, by: 1.0)) { ctx in
-            Text(clockString(ctx.date.timeIntervalSince(start)))
-                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
-        }
-    }
-
-    private func clockString(_ t: TimeInterval) -> String {
-        let total = max(0, Int(t))
-        return String(format: "%02d:%02d", total / 60, total % 60)
+        page = min(max(0, p), max(0, metrics.pageCount - 1))
     }
 }

@@ -9,24 +9,20 @@ struct TopBar: View {
     @Bindable var engine: PromptEngine
     @Bindable var overlay: OverlayController
     @Bindable var voice: VoiceTracker
-    let tokens: [ScriptToken]
+    let index: ScriptIndex
     @Binding var mode: PerformMode
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             ModeSwitcher(mode: $mode)
             Spacer()
             StatusPill(isPlaying: engine.isPlaying, showElapsed: settings.settings.showElapsed,
-                       holdRemaining: engine.holdRemaining)
+                       holdRemaining: engine.holdRemaining,
+                       pauseReason: engine.pauseReason)
             if settings.settings.guidance.usesVoice {
                 MicStatus(voice: voice, compact: true)
             }
-            Text(engine.boostMultiplier > 1.0
-                 ? "\(Int((settings.settings.wordsPerMinute * engine.boostMultiplier).rounded())) wpm ▲"
-                 : "\(Int(settings.settings.wordsPerMinute.rounded())) wpm")
-                .font(.callout).foregroundStyle(engine.boostMultiplier > 1.0 ? CuePalette.peach : CuePalette.muted).monospacedDigit()
-                .fixedSize()
             Menu {
                 Picker("Display", selection: $settings.settings.overlayMode) {
                     Text("Notch").tag(CueSettings.OverlayMode.notch)
@@ -34,11 +30,7 @@ struct TopBar: View {
                     Text("Fullscreen").tag(CueSettings.OverlayMode.fullscreen)
                 }
                 Button(overlay.isShowing ? "Close Overlay" : "Pop Out") {
-                    if overlay.isShowing {
-                        overlay.hide()
-                    } else {
-                        overlay.show(engine: engine, settings: settings, tokens: tokens, voice: voice)
-                    }
+                    overlay.toggle(engine: engine, settings: settings, index: index, voice: voice)
                 }
                 Divider()
                 Picker("Follow mode", selection: $settings.settings.guidance) {
@@ -52,17 +44,22 @@ struct TopBar: View {
                 Divider()
                 Button("Settings…") { openSettings() }
             } label: {
-                Image(systemName: "gearshape")
-                    .font(.title3)
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(CuePalette.muted)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Circle())
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .glassSurface(in: Circle(), interactive: true)
             .help("Display, follow mode and settings")
             .accessibilityLabel("Display, follow mode and settings")
-            .fixedSize()
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .glassGroup(spacing: 12)
     }
 }
 
