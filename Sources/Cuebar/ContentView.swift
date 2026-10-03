@@ -37,6 +37,10 @@ struct ContentView: View {
     /// fullscreen centring is derived from it.
     @State private var sidebarWidth: CGFloat = 240
     @State private var sharing = SharingGuard()
+    /// The window is a drop target for files. Text is *not* handled here:
+    /// a drop that lands on the writing surface belongs in the writing
+    /// surface, and the editor claims it first.
+    @State private var windowDropTargeted = false
     // The remote is owned by the app so the settings scene can show its
     // URL. It is armed by the prompter overlay rather than by a setting:
     // a server that can move a live talk has no business listening while
@@ -119,6 +123,15 @@ struct ContentView: View {
             .background(CuePalette.chrome)
             .frame(minWidth: 520)
         }
+        // The whole window takes a drop, because a dropped document is now
+        // the main way a script gets in. The sidebar's own drop area sits
+        // inside this one and wins where it applies — a folder row *files*
+        // the file there — and everywhere else the file is imported beside
+        // the current script.
+        .scriptDropArea(onTargetedChange: { windowDropTargeted = $0 }) { drop in
+            ScriptIntake.handle(drop, scripts: scripts)
+        }
+        .dropHighlight(windowDropTargeted, radius: 0)
         .background {
             WindowConfigurator(state: windowState)
         }
@@ -146,6 +159,7 @@ struct ContentView: View {
                                    draftBody: $draftBody, tokens: $tokens,
                                    indexBinding: $index,
                                    showDraft: showDraft, doc: doc,
+                                   presentNewScript: { mode = .perform },
                                    armRemote: armRemote))
     }
 
@@ -156,11 +170,31 @@ struct ContentView: View {
                          wordsPerSecond: engine.wordsPerSecond,
                          folderPath: scripts.folderName(doc.folderID),
                          wordsPerMinute: settings.settings.wordsPerMinute,
+                         shortcuts: settings.settings.shortcuts,
                          onRename: { scripts.rename(doc.id, title: $0) },
+                         onPasteScript: { app.newScriptFromClipboard() },
+                         onWebImport: { app.importFromWeb() },
+                         onImportFiles: { urls in
+                             let outcome = ScriptIO.importFiles(urls, existingTitles: scripts.titles)
+                             ScriptIntake.land(outcome, in: scripts)
+                             ScriptIO.reportRejected(outcome)
+                         },
                          draftBody: $draftBody,
                          onBodyCommitted: { commit($0, for: doc.id) })
             } else {
-                ContentUnavailableView("No script selected", systemImage: "doc.text")
+                // The empty window is the other half of the import story:
+                // a first run has no script *and* no list to put one in.
+                ContentUnavailableView {
+                    Label("No script selected", systemImage: "doc.text")
+                } description: {
+                    Text("Import a script, or drop a file anywhere on this window.")
+                } actions: {
+                    HStack(spacing: 8) {
+                        Button("Import…") { app.importScripts() }
+                            .buttonStyle(.borderedProminent)
+                        Button("New Script") { pick(scripts.add().id) }
+                    }
+                }
             }
         }
         .frame(minWidth: 420)

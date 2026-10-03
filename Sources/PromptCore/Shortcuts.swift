@@ -20,6 +20,8 @@ public enum KeyCode {
     public static let k: UInt16 = 40
     public static let n: UInt16 = 45
     public static let m: UInt16 = 46
+    public static let u: UInt16 = 32
+    public static let v: UInt16 = 9
     public static let rightBracket: UInt16 = 30
     public static let leftBracket: UInt16 = 33
     public static let enter: UInt16 = 36
@@ -120,6 +122,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     case toggleFullscreen
     case insertCue
     case newScript, importScripts, exportScript
+    case newScriptFromClipboard, importFromWeb
 
     public enum Group: String, CaseIterable, Sendable {
         case playback, stage, script
@@ -133,7 +136,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
             return .playback
         case .toggleFollow, .toggleMicrophone, .toggleOverlay, .toggleFullscreen:
             return .stage
-        case .insertCue, .newScript, .importScripts, .exportScript:
+        case .insertCue, .newScript, .importScripts, .exportScript,
+             .newScriptFromClipboard, .importFromWeb:
             return .script
         }
     }
@@ -160,6 +164,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .newScript: return "New Script"
         case .importScripts: return "Import Scripts…"
         case .exportScript: return "Export Script…"
+        case .newScriptFromClipboard: return "New Script from Clipboard"
+        case .importFromWeb: return "Import Web Page…"
         }
     }
 
@@ -178,8 +184,14 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .toggleFullscreen: return "Take the prompter fullscreen, or give the display back."
         case .insertCue: return "Open the cue palette."
         case .newScript: return "Start an empty script."
-        case .importScripts: return "Import .txt / .md files as scripts."
-        case .exportScript: return "Save the selected script."
+        case .importScripts:
+            return "Import .txt, .md, .rtf, .docx, .pdf or .html files as scripts."
+        case .exportScript:
+            return "Save the selected script as plain text, Markdown, Word or PDF."
+        case .newScriptFromClipboard:
+            return "Turn what you just copied into a script, ready to present."
+        case .importFromWeb:
+            return "Fetch a web page and turn it into a script."
         }
     }
 
@@ -246,6 +258,10 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .newScript: return KeyChord(keyCode: KeyCode.n, modifiers: [.command, .shift])
         case .importScripts: return KeyChord(keyCode: KeyCode.o, modifiers: .command)
         case .exportScript: return KeyChord(keyCode: KeyCode.s, modifiers: .command)
+        // ⇧⌘V rather than a bare ⌘V: paste belongs to the editor, and
+        // "paste *into a new script*" is a different gesture from "paste".
+        case .newScriptFromClipboard: return KeyChord(keyCode: KeyCode.v, modifiers: [.command, .shift])
+        case .importFromWeb: return KeyChord(keyCode: KeyCode.u, modifiers: [.command, .shift])
         }
     }
 }

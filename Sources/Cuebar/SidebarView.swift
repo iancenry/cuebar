@@ -18,6 +18,11 @@ struct SidebarView: View {
     var wordsPerSecond: Double
     var onPick: (UUID) -> Void
     var onNew: () -> Void
+    /// Read for the chord text only. The titles spell out the *live* chord,
+    /// exactly as the File menu does, and carry no `.keyboardShortcut` —
+    /// the key monitor is the single owner of every chord, and a second
+    /// owner is how one press comes to drive two commands.
+    var shortcuts: ShortcutMap = .default
     var onExport: (ScriptDocument) -> Void = { _ in }
     @State private var search = ""
     @State private var selection: LibrarySelection = .all
@@ -31,6 +36,11 @@ struct SidebarView: View {
     @State private var folderNameDraft = ""
     @State private var folderParent: UUID?
     @State private var renameTarget: UUID?
+    /// Live drop targets. One flag for the rail, one per folder row: a
+    /// border that lights up is the only way the user knows which of a dozen
+    /// rows will take the file they are holding.
+    @State private var railDropTargeted = false
+    @State private var folderDropTargeted: UUID?
 
     /// What the list below is showing. The smart groups are *views* of the
     /// library, not places things live: filing a script into "Favorites"
@@ -130,6 +140,26 @@ struct SidebarView: View {
         return out
     }
 
+    /// A drop that landed on a folder. Files and pasted text are *filed*;
+    /// a script dragged from another window is *moved* — same outcome, and
+    /// re-decoding its body would only risk losing cues.
+    private func file(_ drop: ScriptDrop, into folder: UUID) {
+        switch drop {
+        case .scripts(let ids):
+            for id in ids { scripts.moveScript(id, to: folder) }
+            if let last = ids.last { scripts.select(last) }
+        case .text(let text):
+            guard let script = ScriptImport.fromBody(text,
+                                                      title: ScriptIO.pastedTitle(for: text),
+                                                      existingTitles: scripts.titles) else { return }
+            scripts.select(scripts.importScript(script, folder: folder).id)
+        case .files(let urls):
+            let outcome = ScriptIO.importFiles(urls, existingTitles: scripts.titles)
+            ScriptIntake.land(outcome, in: scripts, folder: folder)
+            ScriptIO.reportRejected(outcome)
+        }
+    }
+
     private func hasChildren(_ folder: ScriptFolder) -> Bool {
         !scripts.childFolders(of: folder.id).isEmpty
     }
@@ -153,6 +183,14 @@ struct SidebarView: View {
                 }
                 .padding(.bottom, 10)
             }
+            // The rail as a whole takes a drop. A folder row takes one too,
+            // and the deeper view wins the hit test, so dropping *on* a
+            // folder files it there while dropping anywhere else lands it
+            // beside the current script.
+            .scriptDropArea(onTargetedChange: { railDropTargeted = $0 }) { drop in
+                ScriptIntake.handle(drop, scripts: scripts)
+            }
+            .dropHighlight(railDropTargeted, radius: 6)
         }
         .onChange(of: search) { _, text in
             // Typing a search from the root has to land somewhere, and
@@ -198,6 +236,15 @@ struct SidebarView: View {
         folderParent = nil
     }
 
+    /// The rail's top row: start a script from nothing.
+    ///
+    /// There is deliberately no Import button here. A `Button` in this row
+    /// never received a click — the events reached the window and
+    /// hit-testing named the hosting view, but the action never ran, while
+    /// an identical control in the editor worked every time. Rather than
+    /// ship a button whose behaviour cannot be explained, scripts come in
+    /// by **dropping them on the window**, which is the better gesture
+    /// anyway, or with ⌘O. Both are named in the empty state below.
     private var newScriptRow: some View {
         Button(action: onNew) {
             HStack(spacing: 8) {
@@ -208,13 +255,14 @@ struct SidebarView: View {
             .foregroundStyle(hoveringNew ? CuePalette.ink : CuePalette.ink.opacity(0.88))
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
-            .background(CuePalette.hover, in: RoundedRectangle(cornerRadius: 8))
+            .background(hoveringNew ? CuePalette.hover : CuePalette.card,
+                        in: RoundedRectangle(cornerRadius: 8))
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .onHover { hoveringNew = $0 }
         .accessibilityLabel("New script")
-        .help("New script (⇧⌘N)")
+        .help("New script (\(chord(.newScript)))")
         .padding(.horizontal, 10)
         .padding(.top, 10)
     }
@@ -311,11 +359,25 @@ struct SidebarView: View {
             .padding(.bottom, 4)
 
             if visible.isEmpty {
-                Text(emptyMessage)
-                    .font(.caption)
-                    .foregroundStyle(CuePalette.inkMuted)
-                    .padding(.leading, 10)
-                    .padding(.top, 6)
+                // An empty library is the exact moment someone needs the
+                // import button, so it is here as a button rather than as a
+                // sentence telling them where to find it.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(emptyMessage)
+                        .font(.caption)
+                        .foregroundStyle(CuePalette.inkMuted)
+                        .padding(.leading, 10)
+                        .padding(.top, 6)
+                    if canImportHere {
+                        // No button — the gesture is the affordance, and an
+                        // empty library is exactly where somebody needs to
+                        // be told what it is.
+                        Text("Drop a file anywhere on this window, or press \(chord(.importScripts)).")
+                            .font(.caption2)
+                            .foregroundStyle(CuePalette.peach.opacity(0.9))
+                            .padding(.leading, 10)
+                    }
+                }
             } else {
                 ForEach(visible) { doc in
                     ScriptRow(
@@ -339,6 +401,7 @@ struct SidebarView: View {
                         onExport: { onExport(doc) },
                         onDelete: { scripts.delete(doc.id) }
                     )
+                    .onDrag { ScriptDrag.provider(for: doc) ?? NSItemProvider() }
                 }
             }
             if !index.sections.isEmpty { sectionTimeline }
@@ -441,6 +504,13 @@ struct SidebarView: View {
                       selected: false) {
             selection = .folder(folder.id)
         }
+        .scriptDropArea(onTargetedChange: { targeted in
+            if targeted { folderDropTargeted = folder.id }
+            else if folderDropTargeted == folder.id { folderDropTargeted = nil }
+        }) { drop in
+            file(drop, into: folder.id)
+        }
+        .dropHighlight(folderDropTargeted == folder.id, radius: 6)
         .contextMenu {
             Button("New Subfolder…") {
                 folderNameDraft = ""
@@ -487,6 +557,21 @@ struct SidebarView: View {
                         String(repeating: "  ", count: row.depth) + row.folder.name))
         }
         return out
+    }
+
+    private func chord(_ action: ShortcutAction) -> String {
+        shortcuts.chord(for: action).description
+    }
+
+    /// Importing into an archive or a smart group would be filing a script
+    /// somewhere it can't live, so the button only appears where a script can
+    /// actually arrive.
+    private var canImportHere: Bool {
+        if !search.isEmpty { return false }
+        switch selection {
+        case .root, .all, .unfiled, .folder: return true
+        case .favorites, .recent, .archived, .tag: return false
+        }
     }
 
     private var emptyMessage: String {

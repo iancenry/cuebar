@@ -37,6 +37,10 @@ struct ContentLifecycle: ViewModifier {
     @Binding var indexBinding: ScriptIndex
     let showDraft: (ScriptDocument) -> Void
     let doc: (UUID) -> ScriptDocument?
+    /// Put the prompter on stage. Called when a script arrives from outside
+    /// the app — the reason it is a closure is that `mode` is ContentView's
+    /// state and the import commands run above the view tree.
+    let presentNewScript: () -> Void
     let armRemote: () -> Void
 
     func body(content: Content) -> some View {
@@ -66,6 +70,17 @@ struct ContentLifecycle: ViewModifier {
                     return
                 }
                 showDraft(found)
+            }
+            .onChange(of: scripts.lastImportedID) { _, id in
+                // "Paste and go": a script that came from the clipboard, a
+                // file, a drop or a web page is *already* the thing being
+                // presented, so the editor would be a step between the user
+                // and the stage. Watched by id rather than read on
+                // selection, because selecting a script the user then went
+                // back to must not yank them out of the editor later.
+                guard id != nil else { return }
+                presentNewScript()
+                scripts.clearImported()
             }
             .onChange(of: overlay.isShowing) { _, showing in
                 // Everything that depends on the prompter being up, in one

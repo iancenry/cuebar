@@ -12,6 +12,39 @@
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
     <string>15.0</string>
+    <!-- No CFBundleDocumentTypes, deliberately. Declaring them makes
+         macOS open a *window per file* dropped on the app, and Cuebar is
+         single-window by design: one editor, one overlay, one key monitor.
+         Files arrive through ⌘O, a drag, or the pasteboard instead, and a
+         cuebar:// link (below) is an event rather than a document, so it
+         never makes a window. -->
+    <!-- The private drag type in ScriptDrag. Exported (not imported):
+         only Cuebar produces it, and a drag carrying it is a script being
+         moved between Cuebar's own lists rather than a file arriving. -->
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.cuebar.script</string>
+            <key>UTTypeDescription</key>
+            <string>Cuebar Script</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+        </dict>
+    </array>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.cuebar.app</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>cuebar</string>
+            </array>
+        </dict>
+    </array>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>NSHighResolutionCapable</key>

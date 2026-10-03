@@ -199,6 +199,14 @@ public final class ScriptStore {
     public private(set) var scripts: [ScriptDocument] = []
     public private(set) var folders: [ScriptFolder] = []
     public var selectedID: UUID?
+    /// The script most recently brought in from outside the app — a file, a
+    /// drop, the clipboard, a web page. Published rather than acted on
+    /// here, because "put it on stage" is a view concern and `mode` lives
+    /// in the view tree: the import command runs at app level, where the
+    /// perform/edit switch cannot be reached. Views watch this and switch
+    /// themselves, which is how a paste lands ready to present instead of
+    /// ready to be edited.
+    public private(set) var lastImportedID: UUID?
 
     private let fileURL: URL?
     private let foldersURL: URL?
@@ -346,6 +354,10 @@ public final class ScriptStore {
         return seen.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
+    /// Titles in use, for the import's duplicate check. Case-insensitive
+    /// inside that check, so this is just the list.
+    public var titles: [String] { scripts.map(\.title) }
+
     public func scripts(tagged tag: String) -> [ScriptDocument] {
         liveScripts.filter { $0.tags.contains { $0.caseInsensitiveCompare(tag) == .orderedSame } }
     }
@@ -437,9 +449,10 @@ public final class ScriptStore {
     }
 
     @discardableResult
-    public func add(title: String = "Untitled", folder: UUID? = nil) -> ScriptDocument {
+    public func add(title: String = "Untitled", body: String = "",
+                    folder: UUID? = nil) -> ScriptDocument {
         let target = folder ?? selected?.folderID
-        let doc = ScriptDocument(title: title, body: "", folderID: target)
+        let doc = ScriptDocument(title: title, body: body, folderID: target)
         scripts.insert(doc, at: 0)
         selectedID = doc.id
         if let i = scripts.firstIndex(where: { $0.id == doc.id }) { scripts[i].lastOpenedAt = Date() }
@@ -447,13 +460,27 @@ public final class ScriptStore {
         return doc
     }
 
-    /// Insert an imported script without changing the selection.
+    /// Bring an outside script into the library.
+    ///
+    /// Filed next to whatever is selected, the same as New Script: an import
+    /// that landed in Unfiled every time was invisible to anyone browsing
+    /// their Presentations folder. The selection is *not* moved here —
+    /// importing five files at once should leave the presenter on the one
+    /// they were reading, and the caller decides what to open.
     @discardableResult
-    public func importScript(title: String, body: String) -> ScriptDocument {
-        let doc = ScriptDocument(title: title, body: body)
+    public func importScript(_ imported: ImportedScript, folder: UUID? = nil) -> ScriptDocument {
+        let target = folder ?? selected?.folderID
+        let doc = ScriptDocument(title: imported.title, body: imported.body, folderID: target)
         scripts.insert(doc, at: 0)
+        lastImportedID = doc.id
         save()
         return doc
+    }
+
+    /// Forget the last import, so re-selecting the same script later doesn't
+    /// drag the editor back to the prompter.
+    public func clearImported() {
+        lastImportedID = nil
     }
 
     public func delete(_ id: UUID) {

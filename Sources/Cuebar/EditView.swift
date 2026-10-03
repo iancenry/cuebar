@@ -13,7 +13,20 @@ struct EditView: View {
     /// Words per *minute*, for the estimate. The engine works in words
     /// per second; a presenter plans in WPM.
     var wordsPerMinute: Double
+    /// Live chord text for the two import buttons below. Read only — no
+    /// `.keyboardShortcut` on either, because the key monitor is the single
+    /// owner of every chord in the app.
+    var shortcuts: ShortcutMap = .default
     var onRename: (String) -> Void
+    /// The two ways to bring in a script that are not the file panel. They
+    /// live here because this is the surface somebody with a document in
+    /// front of them is looking at, and a command with no button and no
+    /// chord they would guess is a command that does not exist.
+    var onPasteScript: () -> Void = {}
+    var onWebImport: () -> Void = {}
+    /// Files that arrived as a path in the text and turned out to be
+    /// documents. One more entry point into the same import pipeline.
+    var onImportFiles: ([URL]) -> Void = { _ in }
     @Binding var draftBody: String
     var onBodyCommitted: (String) -> Void
     @State private var pendingSave: Task<Void, Never>?
@@ -71,6 +84,15 @@ struct EditView: View {
                 .accessibilityLabel("Add heading")
             }
             TextEditor(text: $draftBody)
+                // No drop handler of our own here. Text drops are the text
+                // view's own job and it does them well. Files were the
+                // problem: `NSTextView` answers a file drop by inserting the
+                // file's *path* as text, before any drop target is asked,
+                // so a dropped `.docx` landed in the script as its own
+                // filename. The change handler below takes the path back out
+                // and imports the document instead — the text view's
+                // `readablePasteboardTypes` has no setter, so there is no
+                // way to stop it wanting files in the first place.
                 .font(.system(size: 16))
                 .foregroundStyle(CuePalette.ink)
                 .scrollContentBackground(.hidden)
@@ -83,7 +105,18 @@ struct EditView: View {
                     RoundedRectangle(cornerRadius: CuePalette.cardRadius)
                         .strokeBorder(CuePalette.hairline, lineWidth: 1)
                 }
-                .onChange(of: draftBody) { _, new in
+                .onChange(of: draftBody) { old, new in
+                    // A dropped file arrives as its own path, typed into the
+                    // script by the text view before any drop target was
+                    // asked. Take it back out and import the document
+                    // instead. The existence check is here rather than in
+                    // `ScriptText.droppedFile` because that one is pure.
+                    if let path = ScriptText.droppedFile(from: old, to: new),
+                       FileManager.default.fileExists(atPath: path) {
+                        draftBody = old
+                        onImportFiles([URL(fileURLWithPath: path)])
+                        return
+                    }
                     pendingSave?.cancel()
                     pendingSave = Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(400))
@@ -91,6 +124,36 @@ struct EditView: View {
                         onBodyCommitted(new)
                     }
                 }
+            // An empty script is where somebody with a Word document in
+            // front of them lands, so the ways in are named *here* rather
+            // than only in a menu. A drop target nobody can see is a target
+            // that reads as broken.
+            if index.wordCount == 0 {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.down.doc")
+                            .font(.callout)
+                            .foregroundStyle(CuePalette.peach)
+                        Text("Drop a .docx, .pdf, .md or .txt anywhere on this window.")
+                            .font(.callout)
+                            .foregroundStyle(CuePalette.inkMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                    }
+                    HStack(spacing: 8) {
+                        importButton("Paste as New Script",
+                                     icon: "doc.on.clipboard",
+                                     chord: shortcuts.chord(for: .newScriptFromClipboard),
+                                     action: onPasteScript)
+                        importButton("Import Web Page…",
+                                     icon: "globe",
+                                     chord: shortcuts.chord(for: .importFromWeb),
+                                     action: onWebImport)
+                        Spacer()
+                    }
+                }
+                .padding(.vertical, 2)
+            }
             // The header a presenter actually plans against. Duration is
             // derived from the *live* reading speed, so changing the WPM
             // slider changes the estimate here and in the sidebar at the
@@ -128,6 +191,49 @@ struct EditView: View {
             .monospacedDigit()
         }
         .padding(24)
+
+    }
+
+    /// One of the two import buttons. A `Menu` in this window's chrome is
+    /// not an option: a SwiftUI `Menu` with `.onHover` on it never opened,
+    /// which is how three commands sat there doing nothing. Buttons.
+    private func importButton(_ title: String, icon: String, chord: KeyChord,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.caption)
+                Text(title).font(.callout.weight(.medium))
+                Text(chord.description)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(CuePalette.inkMuted)
+            }
+            .foregroundStyle(CuePalette.peach)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(CuePalette.card, in: Capsule())
+            .overlay { Capsule().strokeBorder(CuePalette.hairline, lineWidth: 1) }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(title + " (" + chord.description + ")")
+    }
+
+    /// Dropped text goes in at the caret, through the binding — never by
+    /// assigning `textView.string`, which is how a caret ends up in two
+    /// places (see `insertSection`).
+    private func insertDroppedText(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let current = draftBody as NSString
+        let view = editorTextView
+        let location = min(view?.selectedRange().location ?? current.length, current.length)
+        let replacement = ScriptText.trimLineIndents(trimmed)
+        draftBody = current.replacingCharacters(in: NSRange(location: location, length: 0),
+                                                with: replacement)
+        let caret = location + (replacement as NSString).length
+        DispatchQueue.main.async {
+            view?.setSelectedRange(NSRange(location: caret, length: 0))
+        }
     }
 
     /// The script editor's own `NSTextView`, reached through the responder

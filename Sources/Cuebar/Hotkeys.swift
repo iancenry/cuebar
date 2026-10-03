@@ -12,6 +12,12 @@ struct AppCommandBridge {
     var newScript: () -> Void
     var importScripts: () -> Void
     var exportScript: () -> Void
+    /// The two "bring it in" commands. Both land a script in the store and
+    /// select it; `lastImportedID` then tells the view tree to put it on
+    /// stage, which is the only way a paste can arrive *ready to present*
+    /// when the command itself runs where the perform/edit switch lives.
+    var newScriptFromClipboard: () -> Void
+    var importFromWeb: () -> Void
 }
 
 /// Everything a command needs from the view tree. `mode` is a binding so
@@ -121,6 +127,8 @@ final class HotkeyCenter {
         case .newScript: app?.newScript(); return
         case .importScripts: app?.importScripts(); return
         case .exportScript: app?.exportScript(); return
+        case .newScriptFromClipboard: app?.newScriptFromClipboard(); return
+        case .importFromWeb: app?.importFromWeb(); return
         case .insertCue: app?.showCuePalette(); return
         default: break
         }
@@ -174,7 +182,8 @@ final class HotkeyCenter {
                                   index: context.index, voice: context.voice)
         case .toggleFullscreen:
             toggleFullscreen()
-        case .insertCue, .newScript, .importScripts, .exportScript:
+        case .insertCue, .newScript, .importScripts, .exportScript,
+             .newScriptFromClipboard, .importFromWeb:
             break // handled above
         }
     }

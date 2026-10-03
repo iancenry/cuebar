@@ -9,7 +9,7 @@ macOS teleprompter (SwiftPM, Swift 6, SwiftUI). Two targets:
 
 ```bash
 swift build
-swift test                     # 168 tests, PromptCore only — view logic is untested by design
+swift test                     # 290 tests, PromptCore only — view logic is untested by design
 ./Scripts/make-app.sh          # build dist/Cuebar.app (debug); pass "release" for release
 open dist/Cuebar.app
 ```
@@ -56,7 +56,13 @@ and ad-hoc signs it.
   window closed). Both hooks call `HotkeyPolicy.decide`.
 - `ScriptStore` / `SettingsStore` — @Observable stores, debounced persistence.
   `ScriptDocument.wordCount` is cached and `body` is read-only, so the two
-  can't drift.
+  can't drift. `add(body:)` and `importScript(_:)` both file beside the
+  current script rather than always landing in Unfiled.
+- Import/export — `ScriptFormat`, `ScriptText`, `MarkdownText`, `HTMLText`,
+  `WebPage`, `ScriptImport`, `ZipWriter`, `DocxWriter`, `PdfLayout` are all
+  PromptCore and all tested; `ScriptIO` (panels), `SystemText`
+  (`NSAttributedString`/`PDFKit`), `PdfExport` (CoreGraphics), `ScriptWeb`
+  (`URLSession`), `ScriptDragDrop` and `ScriptIntake` are the app layer.
 
 ## Hard-won constraints (do not regress)
 
@@ -181,13 +187,89 @@ and ad-hoc signs it.
 - **Force dark appearance** (`preferredColorScheme(.dark)`) — CuePalette is a
   dark-only design; Light Mode washes everything out.
 - **Sandbox vs the key tap**: a session-level `CGEvent` tap needs the
-  Accessibility permission *and* an unsandboxed build; `Cuebar.entitlements`
-  sets app-sandbox, so the setting reports `.unavailable` rather than
-  pretending. The *local* monitor needs neither, which is why it is the
-  primary path and the tap is opt-in.
+  Accessibility permission *and* an unsandboxed build, so the setting reports
+  `.unavailable` rather than pretending. The *local* monitor needs neither,
+  which is why it is the primary path and the tap is opt-in. Note what
+  `make-app.sh` actually does: it ad-hoc signs **without**
+  `--entitlements`, so the packaged app is *not* sandboxed today and
+  `Cuebar.entitlements` documents intent rather than reality. Turning the
+  sandbox on is a one-line change to that script and a project-wide change
+  to what works — don't do it as a side effect of something else.
 - **Cue-only scripts**: `ScriptIndex.pageTokenRange` has no word range to
   slice by, so it falls back to the whole token array — otherwise a script
   that is nothing but cues renders a blank page.
+- **Import is one pipeline, entered from five places.** `ScriptImport.plan`
+  (PromptCore, tested) decides everything: decode, normalise, reject what is
+  empty or oversized, de-duplicate titles against the library. `SystemText`
+  and `PdfExport` (app layer) are the only parts that need a framework, and
+  `ScriptIntake.land` is the only thing that inserts *and* selects. The
+  panel, the pasteboard, the web sheet, a Finder drop and a drag all end up
+  there — five copies of "insert, select, report what was skipped" is five
+  chances to forget the last step, which is the one the user notices.
+- **The reader is chosen by extension, not by format.** `.rtf` and `.html`
+  are both `ScriptFormat.richText` and want opposite readers, so
+  `ScriptFormat.reader(forFilename:)` exists and is tested; insisting RTF on
+  an HTML file imported nothing, and a file that imports as nothing looks
+  exactly like a file that was never imported.
+- **Two different hygiene rules, on purpose.** A *file* keeps its layout
+  (leading indentation included) so an exported script round-trips byte for
+  byte; *pasted* text is de-indented, because the indentation on a paste
+  came from a mail client or a code block and means nothing aloud. Text
+  formats are decoded by `ScriptText`, which strips zero-width characters,
+  soft hyphens and exotic spaces — Word and PDF put them inside ordinary
+  words, and the tokenizer split on them. U+200D/U+200C are deliberately
+  *not* stripped: they hold an emoji sequence together.
+- **Paste is verbatim, `.md` is not.** The pasteboard's plain-text flavour is
+  already the readable version of what was copied, so it is taken as-is;
+  a `.md` file goes through `MarkdownText`, which keeps headings (they
+  become sections) and drops inline markup so nothing says "star star" from
+  the stage.
+- **An import lands *on stage*, not in the editor.** The import commands run
+  at app level (`CuebarApp`), where `mode` — the perform/edit switch —
+  cannot be reached, so `ScriptStore.lastImportedID` is the relay:
+  `ContentLifecycle` watches it, switches to Perform, and clears it. Watch
+  the id rather than the selection, or a script the user goes back to later
+  drags them out of the editor at the wrong moment.
+- **No `CFBundleDocumentTypes`, deliberately.** With a `WindowGroup`,
+  declaring them makes macOS open a *window per file* — Cuebar is
+  single-window by design (one editor, one overlay, one key monitor). Files
+  arrive through ⌘O, a drag or the pasteboard; a `cuebar://` link is an
+  event rather than a document, so it never makes a window.
+- **Drops are told apart, not guessed.** `ScriptDropReader` reads the
+  drag's *pasteboard* directly, in a fixed order — a script (our private
+  `com.cuebar.script` type), then files, then text — and it refuses text
+  that is a path, because AppKit hands a file drop back as a path string
+  too. The receiving view is an AppKit `NSView` in a **background layer**
+  (`ScriptDropArea`), not SwiftUI's `onDrop`: `onDrop` takes part in hit
+  testing, so covering the window with drop targets cost it its buttons,
+  and `NSItemProvider` loads are async, which puts a drag that has already
+  finished into a `Task`. `NSTextView` answers a file drop by inserting the
+  path as text *before* any target is consulted, and its
+  `readablePasteboardTypes` has no setter — so `ScriptText.droppedFile`
+  (pure, tested) finds the insertion afterwards and the editor imports the
+  document instead. A drop target nobody can see reads as broken, so every
+  one has an accent border while targeted.
+- **There is no Import button in the sidebar, and that is load-bearing.**
+  A SwiftUI `Button` in the rail's top row never ran its action: the events
+  reached the window, `hitTest` named the hosting view, a synthetic click on
+  an identical control works in a plain window, and a tap gesture in the same
+  place fired 20/20 while an identical `Button` in the editor works every
+  time. Scripts come in by **dropping them on the window** instead — the
+  better gesture for a teleprompter anyway — with ⌘O as the keyboard path.
+  Do not add a button back there to "fix" discoverability without measuring
+  that it fires first.
+- **A PDF is drawn with CoreText, not `NSAttributedString.draw(at:)` in a
+  "flipped" `NSGraphicsContext`.** That trick is for bitmap contexts; on a
+  PDF consumer it rendered the page upside-down *and* mirrored — a file that
+  opens, looks like a document, and is unreadable. `PdfLayout` owns the
+  arithmetic (pure, tested); `PdfExport` only measures and draws.
+- **`.docx` is written, not read, by Cuebar.** A minimal stored-entry ZIP of
+  five XML parts; `ZipWriter` stores uncompressed because Apple's
+  libcompression only offers a zlib-wrapped deflate and the container wants
+  raw. Two of its bugs are invisible in the file and fatal in Word: XML
+  attributes must be separated by a space (a `\` continuation eats the next
+  line's indentation) and every part needs a correct CRC-32. Verify a change
+  with `unzip -l` + `xmllint` + `textutil -convert txt`.
 - `glassSurface(in:)` wraps Liquid Glass (macOS 26+) with a card fallback —
   glass goes on floating chrome only, never on the reading surface.
 - `.build/debug` is a **symlink** — `find`/globs need a trailing slash.

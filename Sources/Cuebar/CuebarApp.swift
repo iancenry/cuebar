@@ -15,6 +15,14 @@ struct CuebarApp: App {
     @State private var overlay = OverlayController()
     @State private var voice = VoiceTracker()
     @State private var showingCuePalette = false
+    /// "Import from Web Page…". A sheet rather than a prompt: the fetch can
+    /// fail, and a failure with nowhere to show a URL is a dead end.
+    @State private var showingWebImport = false
+    /// The file importer. SwiftUI presents it on the right window itself —
+    /// and it has to be SwiftUI: `NSApp.keyWindow` and `NSApp.mainWindow`
+    /// are both nil in a `WindowGroup` app like this one (measured), so an
+    /// `NSOpenPanel` had no window to attach to and simply never appeared.
+    @State private var showingImporter = false
     @State private var hotkeys: HotkeyCenter
     @State private var globalHotkeys: GlobalHotkeys
     /// Phone remote. App-level rather than owned by the main window,
@@ -42,7 +50,9 @@ struct CuebarApp: App {
         AppCommandBridge(showCuePalette: { showingCuePalette = true },
                          newScript: newScript,
                          importScripts: importScripts,
-                         exportScript: exportSelected)
+                         exportScript: exportSelected,
+                         newScriptFromClipboard: pasteNewScript,
+                         importFromWeb: { showingWebImport = true })
     }
 
     var body: some Scene {
@@ -61,6 +71,37 @@ struct CuebarApp: App {
                     CuePaletteView { inner in
                         insertCue(inner)
                         showingCuePalette = false
+                    }
+                }
+                .sheet(isPresented: $showingWebImport) {
+                    WebImportView { script in
+                        ScriptIntake.land(ScriptImport.Outcome(scripts: [script], rejected: []),
+                                          in: scripts)
+                        showingWebImport = false
+                    }
+                }
+                // `cuebar://script?url=…`. A custom scheme is an *event*,
+                // not a document, so it reuses the window instead of
+                // asking for a new one — which is the whole reason document
+                // types are not declared.
+                .onOpenURL { url in
+                    openExternally(url)
+                }
+                .fileImporter(isPresented: $showingImporter,
+                              allowedContentTypes: ScriptIO.importTypes(),
+                              allowsMultipleSelection: true) { result in
+                    switch result {
+                    case .success(let urls):
+                        importFiles(urls)
+                    case .failure(let error):
+                        // A cancelled panel reports a failure; saying so
+                        // would put an alert in front of somebody who
+                        // simply changed their mind.
+                        let code = (error as NSError).code
+                        if code != NSUserCancelledError {
+                            ScriptIO.report("Couldn't read those files",
+                                            error.localizedDescription)
+                        }
                     }
                 }
         }
@@ -95,6 +136,9 @@ struct CuebarApp: App {
             CommandGroup(after: .importExport) {
                 command(.importScripts)
                 command(.exportScript)
+                Divider()
+                command(.newScriptFromClipboard)
+                command(.importFromWeb)
             }
         }
         Settings {
@@ -126,16 +170,53 @@ struct CuebarApp: App {
         voice.recycle()
     }
 
-    /// ⌘O / File menu: turn .txt/.md files into scripts.
+    /// ⌘O / File menu: turn .txt, .md, .rtf, .docx, .pdf and .html files
+    /// into scripts. Just presenting; the files arrive in `importFiles`
+    /// through the importer above.
     private func importScripts() {
-        guard let parsed = ScriptIO.importScripts(), !parsed.isEmpty else { return }
-        var lastID: UUID?
-        for item in parsed {
-            lastID = scripts.importScript(title: item.title, body: item.body).id
+        showingImporter = true
+    }
+
+    /// Files chosen in the importer, or handed to the app by Finder.
+    private func importFiles(_ urls: [URL]) {
+        let outcome = ScriptIO.importFiles(urls, existingTitles: scripts.titles)
+        ScriptIntake.land(outcome, in: scripts)
+        ScriptIO.reportRejected(outcome)
+    }
+
+    /// ⇧⌘V: the pasteboard, as a script.
+    ///
+    /// Async because "a link and nothing else" means a fetch. The command
+    /// stays app-level — it works with the main window closed, exactly like
+    /// Import — and the store's `lastImportedID` is what brings the result
+    /// on stage when a window is there to do it.
+    private func pasteNewScript() {
+        Task {
+            guard let outcome = await ScriptIO.fromClipboard(existingTitles: scripts.titles),
+                  !outcome.isEmpty else { return }
+            ScriptIntake.land(outcome, in: scripts)
         }
-        if let lastID {
-            scripts.select(lastID)
+    }
+
+    /// A URL handed to the app: a file, or a `cuebar://` link asking for a
+    /// page. The file case exists for `cuebar://script?url=file:///…` and
+    /// for a drag onto the Dock icon; ordinary file opening goes through
+    /// the panel or a drop, both of which the window owns.
+    private func openExternally(_ url: URL) {
+        if url.isFileURL {
+            importFiles([url])
+            return
         }
+        // cuebar://script?url=… — the sheet, pre-filled. A link is a
+        // request for a specific page, not a general-purpose fetcher, so the
+        // URL still has to be typed into the field and confirmed.
+        if url.scheme == "cuebar", let page = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "url" })?.value, !page.isEmpty {
+            showingWebImport = true
+            WebImportView.pendingURL = page
+            return
+        }
+        showingWebImport = true
     }
 
     /// ⌘S / File menu: save the selected script wherever the user wants.
