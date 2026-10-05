@@ -91,7 +91,9 @@ struct CuebarApp: App {
                          togglePractice: { practice.toggle() },
                          revealPractice: { practice.toggleReveal() },
                          analyseScript: { showingPacing = true },
-                         scriptTools: { showingScriptTools = true })
+                         scriptTools: { showingScriptTools = true },
+                         toggleBold: { insertEmphasis(marker: "**") },
+                         toggleItalic: { insertEmphasis(marker: "*") })
     }
 
     var body: some Scene {
@@ -431,6 +433,39 @@ struct CuebarApp: App {
         voice.recycle()
         // A second ⌘K in a row should land next to the first one.
         if let selection { editor?.setSelectedRange(selection) }
+    }
+
+    /// ⌘B / ⌘I: mark the selection, or the word at the caret.
+    ///
+    /// Here rather than in `EditView` for the same reason `insertCue` is: the
+    /// key monitor is the single owner of every chord, so the command has to
+    /// be dispatchable from the app — and the toolbar button it replaces was
+    /// the second owner of the same edit.
+    ///
+    /// The markers stay in the file and come off before anything is said, so
+    /// this writes text and nothing else: no engine reload is needed unless
+    /// the *words* changed, which for `**` they never do. That is the whole
+    /// reason bold is safe in a teleprompter.
+    private func insertEmphasis(marker: String) {
+        guard let selectedID = scripts.selectedID,
+              draftScriptID == nil || draftScriptID == selectedID else { return }
+        guard let editor = Self.editorTextView() else { return }
+        let plan = EmphasisInsert.plan(for: draftBody, selection: editor.selectedRange(),
+                                       marker: marker)
+        draftBody = plan.text
+        scripts.updateBody(selectedID, body: plan.text)
+        tokens = ScriptParser.parse(plan.text)
+        index = ScriptIndex(tokens: tokens)
+        if ScriptParser.words(plan.text) != engine.words {
+            engine.loadScript(plan.text, preservingPosition: true)
+        }
+        voice.recycle()
+        // The next turn, once the new text has landed — the same reason
+        // `insertCue` sets the range last.
+        DispatchQueue.main.async {
+            let clamped = min(plan.caret, (plan.text as NSString).length)
+            editor.setSelectedRange(plan.selected ?? NSRange(location: clamped, length: 0))
+        }
     }
 
     /// The script editor, wherever it lives. `NSApp.keyWindow` is the cue

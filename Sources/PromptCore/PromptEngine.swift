@@ -72,7 +72,7 @@ public final class PromptEngine {
         // One parse feeds both the word list and paragraph-open tracking.
         let tokens = ScriptParser.parse(text)
         words = tokens.compactMap {
-            if case .word(let w) = $0 { return w }
+            if case .word(let w, _) = $0 { return w }
             return nil
         }
         paragraphStarts = Self.paragraphStartIndices(in: tokens, wordCount: words.count)

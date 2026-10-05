@@ -156,7 +156,7 @@ import Testing
         for text in ["We **shipped** it.", "2*3*4 rules", "**a** *b* _c_ d",
                      "***bold italic*** here", "nothing marked at all"] {
             let tokenised = ScriptParser.parse(text).compactMap { token -> String? in
-                if case .word(let w) = token { return w }
+                if case .word(let w, _) = token { return w }
                 return nil
             }
             #expect(tokenised == spoken(text), Comment(rawValue: "\(text)"))

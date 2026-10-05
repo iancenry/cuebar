@@ -87,7 +87,8 @@ import Foundation
         let json = #"{"wordsPerMinute":140,"guidance":"auto"}"#
         let decoded = try JSONDecoder().decode(CueSettings.self, from: Data(json.utf8))
         #expect(decoded.wordsPerMinute == 140)
-        #expect(decoded.theme.isEmpty, "follow the system unless the user said otherwise")
+        #expect(decoded.theme == ThemeCatalog.dark,
+                "an old file gets today's default, which is Dark until Light has been seen")
         #expect(decoded.surfaceTheme.isEmpty)
         #expect(!decoded.highContrast)
     }

@@ -9,6 +9,7 @@ public enum KeyCode {
     // *recorded* chords come from the literal table in `KeyChord.names`,
     // so an unlisted key still reads correctly after a rebind.
     public static let a: UInt16 = 0
+    public static let b: UInt16 = 11
     public static let s: UInt16 = 1
     public static let f: UInt16 = 3
     public static let h: UInt16 = 4
@@ -128,9 +129,12 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     case togglePractice, revealPractice
     case toggleRecording
     case analyseScript, scriptTools
+    case toggleBold, toggleItalic
 
+    /// `format` is the editor's own pair of text commands. It is not
+    /// `script`: those work with the window closed, and these need a caret.
     public enum Group: String, CaseIterable, Sendable {
-        case playback, stage, script
+        case playback, stage, script, format
     }
 
     public var group: Group {
@@ -150,6 +154,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
              .newScriptFromClipboard, .importFromWeb, .togglePractice,
              .revealPractice, .analyseScript, .scriptTools:
             return .script
+        case .toggleBold, .toggleItalic:
+            return .format
         }
     }
 
@@ -183,6 +189,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .toggleRecording: return "Record Rehearsal"
         case .analyseScript: return "Pacing Notes"
         case .scriptTools: return "Script Tools…"
+        case .toggleBold: return "Bold"
+        case .toggleItalic: return "Italic"
         }
     }
 
@@ -221,6 +229,10 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
             return "Find the long sentences, hard words and breathless runs."
         case .scriptTools:
             return "Rewrite the script for the ear, with a key you supply."
+        case .toggleBold:
+            return "Mark the selection, or the word at the caret, as bold."
+        case .toggleItalic:
+            return "Mark the selection, or the word at the caret, as italic."
         }
     }
 
@@ -246,18 +258,31 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     public var isEditorSafe: Bool {
         switch self {
         case .playPause, .insertCue,
-             .toggleFollow, .toggleMicrophone, .toggleOverlay:
+             .toggleFollow, .toggleMicrophone, .toggleOverlay,
+             .toggleBold, .toggleItalic:
             return true
         default:
             return false
         }
     }
 
-    /// The one ⌘-chord that answers in the editor. ⌘ and ⌃ belong to macOS
-    /// in a text field — ⌘F is Find, ⌘↑ is the document start — so they
-    /// are respected in the editor, with one exception: ⌘K has no macOS
-    /// meaning and a cue is text.
-    public var isCommandSafeInEditor: Bool { self == .insertCue }
+    /// The ⌘-chords that answer in the editor. ⌘ and ⌃ belong to macOS in a
+    /// text field — ⌘F is Find, ⌘↑ is the document start — so they are
+    /// respected, with three exceptions.
+    ///
+    /// ⌘K has no macOS meaning and a cue is text. ⌘B and ⌘I *do* have a macOS
+    /// meaning, and that is exactly why they are ours: the editor is a plain
+    /// text view, so the system's bold and italic do nothing at all here —
+    /// not a beep, nothing — and forwarding them would leave two of the most
+    /// familiar chords in the app dead. They are the reason the Bold button
+    /// could be taken out of the toolbar: the command is where a Mac user
+    /// already looks for it.
+    public var isCommandSafeInEditor: Bool {
+        switch self {
+        case .insertCue, .toggleBold, .toggleItalic: return true
+        default: return false
+        }
+    }
 
     /// Defaults are the chords the app shipped with. They must stay unique
     /// (locked by a test) — otherwise one key silently drives two commands.
@@ -303,6 +328,11 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         // ⌥A for the diagnosis (offline, instant), ⌥⇧A for the model.
         case .analyseScript: return KeyChord(keyCode: KeyCode.a, modifiers: .option)
         case .scriptTools: return KeyChord(keyCode: KeyCode.a, modifiers: [.option, .shift])
+        // ⌘B and ⌘I, because that is where a Mac user reaches for bold and
+        // italic, and the editor is plain text — so nothing else in the app
+        // would ever answer them.
+        case .toggleBold: return KeyChord(keyCode: KeyCode.b, modifiers: .command)
+        case .toggleItalic: return KeyChord(keyCode: KeyCode.i, modifiers: .command)
         }
     }
 }

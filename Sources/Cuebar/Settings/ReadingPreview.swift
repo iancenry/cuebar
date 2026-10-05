@@ -39,12 +39,13 @@ struct ReadingPreview: View {
                                    lineSpacing: fontSize * settings.lineSpacing) {
                             ForEach(Array(para.enumerated()), id: \.offset) { _, row in
                                 switch row.token {
-                                case .word(let w):
+                                case .word(let w, let emphasised):
                                     WordPill(word: w,
                                              isPast: row.wordIndex < demoCurrentIndex,
                                              isCurrent: row.wordIndex == demoCurrentIndex,
                                              settings: settings,
-                                             fontSize: fontSize)
+                                             fontSize: fontSize,
+                                             isEmphasised: emphasised)
                                 case .cue:
                                     if let cue = row.cue {
                                         CueBadge(cue: cue, settings: settings, fontSize: fontSize)

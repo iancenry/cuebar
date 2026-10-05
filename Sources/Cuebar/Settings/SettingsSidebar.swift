@@ -286,8 +286,11 @@ struct SettingsCard<Content: View>: View {
         }
     }
 }
-/// The settings window's background: the main app's painted field over an
-/// **opaque** floor.
+/// The app's window background: the painted field over an **opaque** floor.
+///
+/// One definition for the main window and the settings window, because "the
+/// same look" that is actually two copies of a `ZStack` is two copies that
+/// drift.
 ///
 /// The opaque part is load-bearing. `SidebarBackdrop` is deliberately
 /// translucent — it is a real window with your desktop behind it — and reusing
@@ -298,7 +301,7 @@ struct SettingsCard<Content: View>: View {
 /// So: solid surface first, the paint on top at low opacity, and a tonal ramp
 /// toward the content side. It reads as part of the app without being a window
 /// you can see through.
-struct SettingsBackdrop: View {
+struct ChromeField: View {
     var body: some View {
         ZStack {
             CuePalette.surface

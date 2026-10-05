@@ -35,7 +35,7 @@ struct SettingsView: View {
         // The same painted field the main window sits on, rather than a flat
         // black rectangle: a settings window is part of the app, and the
         // nearest thing to "unrelated tool" is a bare dark panel.
-        .background(SettingsBackdrop())
+        .background(ChromeField())
         // The page name rides in the title bar, the way a native settings
         // window does, so the sidebar is navigation rather than the headline.
         .navigationTitle(title(for: selection))

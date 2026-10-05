@@ -67,6 +67,38 @@ struct ContentView: View {
                          topInset: CuePalette.chromeRowHeight,
                          showsHeader: false)
                 .overlay(alignment: .bottom) { transport }
+                // The reading surface is opaque on purpose — it is what the
+                // camera sees — so the only way the painted field can reach the
+                // perform column is if the canvas stops being edge to edge.
+                //
+                // Framed exactly like the editor's page: pushed down by the
+                // chrome row so the floating top bar sits on the field above
+                // it, and rounded on all four corners at the palette's own
+                // card radius.
+                //
+                // Clip and hairline go on the canvas *before* the padding, not
+                // after it. Applied after, they round the padded box instead —
+                // so the shape is drawn on the field and the black canvas keeps
+                // square corners inside it, which is the opposite of the intent
+                // and looks like a mistake at the top left.
+                //
+                // `readingWidth` is a fixed measure (650pt by default), so
+                // this does not re-wrap a line — it costs the margins, not the
+                // presenter's line breaks.
+                .clipShape(RoundedRectangle(cornerRadius: CuePalette.cardRadius,
+                                            style: .continuous))
+                // A hairline as well as a field. Tone alone is not enough: the
+                // reading surface is a *setting*, and `slate` is within a hair
+                // of the field's own value, so a card framed by tone alone
+                // disappears for some presenters and not others.
+                .overlay {
+                    RoundedRectangle(cornerRadius: CuePalette.cardRadius,
+                                     style: .continuous)
+                        .strokeBorder(CuePalette.hairline, lineWidth: 1)
+                }
+                .padding(.horizontal, CuebarStage.inset)
+                .padding(.top, CuePalette.chromeRowHeight)
+                .padding(.bottom, CuebarStage.inset)
         } else {
             // Paint in the editor's margins and around the page; the page
             // itself is an opaque card, so the writing never sits on it.
@@ -131,7 +163,14 @@ struct ContentView: View {
                        practice: practice, mode: $mode)
             }
             .ignoresSafeArea(.container, edges: .top)
-            .background(CuePalette.chrome)
+            // Its own field, deliberately *not* `ChromeField`. That one floors
+            // on `CuePalette.surface`, which is also what the default reading
+            // surface (`espresso`) resolves to — so the canvas was a black card
+            // on a black field, and no opacity of painting could make it read
+            // as a card. Flooring on `chrome` puts the field a step lighter
+            // than the darkest reading surface, so the canvas is framed by
+            // tone. Same paint, same ramp, one value different.
+            .background(StageField())
             .frame(minWidth: 520)
         }
         // The whole window takes a drop, because a dropped document is now
@@ -351,4 +390,40 @@ struct ContentView: View {
     private func doc(matching id: UUID) -> ScriptDocument? {
         scripts.scripts.first(where: { $0.id == id })
     }
+}
+
+/// The perform column's geometry, named.
+///
+/// This margin is the difference between "the prompter is a black rectangle"
+/// and "the prompter is a card on the same painted field as the rest of the
+/// app". The canvas's corner radius is not here — it is `CuePalette.cardRadius`,
+/// because a card that is rounded one way in Edit and another in Perform is the
+/// exact mismatch this change exists to remove.
+/// The perform column's field: the painting over a floor one step lighter
+/// than the settings window's.
+///
+/// The reading surface is `CuePalette.surface` by default, so a canvas drawn
+/// on a field of the same value is invisible as a *shape* no matter how much
+/// paint is on top of it. This is the same ZStack as `ChromeField` with a
+/// different floor, and that one value is the whole difference between "black
+/// rectangle" and "card on a wall".
+struct StageField: View {
+    var body: some View {
+        ZStack {
+            CuePalette.chrome
+            PaintedField().opacity(0.42)
+            Color.black.opacity(0.14)
+            // Ramp toward the text side, so the reading column keeps the
+            // calmest ground and the paint shows where nothing is read.
+            LinearGradient(colors: [CuePalette.surface.opacity(0.55),
+                                    CuePalette.surface.opacity(0.10)],
+                           startPoint: .top, endPoint: .bottom)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+enum CuebarStage {
+    /// Margin between the canvas and the column's edges, where the paint shows.
+    static let inset: CGFloat = 22
 }

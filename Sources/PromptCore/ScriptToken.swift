@@ -3,7 +3,12 @@ import Foundation
 /// First-class script token. Cues like `[smile]` / `[pause]` are stage
 /// directions: rendered distinctly, never tracked as spoken words.
 public enum ScriptToken: Equatable, Sendable {
-    case word(String)
+    /// `emphasised` is a fact about the *file*, not the speech: the text is
+    /// already `spoken`, so this is the only surviving trace that the author
+    /// wrote `**like this**`. It rides on the token rather than beside it in a
+    /// parallel set, because a second container of per-word facts is a second
+    /// thing that can disagree with the first.
+    case word(String, emphasised: Bool = false)
     case cue(String)
     /// `## Problem` in the source. A section is not a word: it must not be
     /// counted in the duration, spoken by the recogniser, or highlighted —
@@ -123,7 +128,7 @@ public enum ScriptParser: Sendable {
             guard !current.isEmpty else { return }
             // `**bold**` is file syntax, not speech. The token carries what is
             // said; the file keeps what the presenter typed.
-            tokens.append(.word(spoken(current)))
+            tokens.append(.word(spoken(current), emphasised: ScriptParser.isEmphasised(current)))
             current = ""
         }
 
@@ -218,7 +223,8 @@ public enum ScriptParser: Sendable {
                 // arrays to decide whether to reload the engine — so every ⌘K
                 // on such a script called `cancelHold()` and killed the timed
                 // pause it had just written.
-                tokens.append(.word(spoken(String(part))))
+                tokens.append(.word(spoken(String(part)),
+                                    emphasised: ScriptParser.isEmphasised(String(part))))
             }
         } else {
             flushWord()
@@ -348,7 +354,16 @@ public enum ScriptParser: Sendable {
         return out
     }
 
-    /// Words only, in order — what the tracking engine consumes.
+    /// Whether the author marked this word with `**` or `*`.
+    ///
+    /// Asked of `spokenRange` rather than of a rule of its own: "is this
+    /// emphasised" and "what did we strip" have to have the same answer, and
+    /// `2*3*4` and `****` are exactly the words where a hand-written second
+    /// rule would disagree with the first.
+    public static func isEmphasised(_ word: String) -> Bool {
+        spokenRange(of: word) != nil
+    }
+
     /// The part of a word that is actually spoken, with Markdown emphasis
     /// markers removed.
     ///
@@ -518,8 +533,20 @@ public enum EmphasisInsert {
     /// while the parser drops them before anything is said. That is what makes
     /// a Bold button safe in a teleprompter rather than a way to say
     /// "asterisk".
+    /// What a press of ⌘B or ⌘I did.
+    ///
+    /// A struct rather than a tuple because it is now the return of a
+    /// *dispatched command* rather than of a button: the chord reaches the app
+    /// through the single key monitor, and a named result is what lets the
+    /// same plan be tested without a text view.
+    public struct Plan: Equatable, Sendable {
+        public var text: String
+        public var caret: Int
+        public var selected: NSRange?
+    }
+
     public static func plan(for text: String, selection: NSRange,
-                            marker: String) -> (text: String, caret: Int, selected: NSRange?) {
+                            marker: String) -> Plan {
         let ns = text as NSString
         // A selection can arrive out of date — a document that shrank under an
         // open sheet — and `substring(with:)` traps on one. Clamped here rather
@@ -540,7 +567,8 @@ public enum EmphasisInsert {
                 let markerText = marker + marker
                 let out = ns.replacingCharacters(in: range, with: markerText)
                 let middle = range.location + marker.utf16.count
-                return (out, middle, NSRange(location: middle, length: 0))
+                return Plan(text: out, caret: middle,
+                            selected: NSRange(location: middle, length: 0))
             }
             let inner = ns.substring(with: range)
             // Already emphasised? Toggle it off rather than nesting.
@@ -549,11 +577,13 @@ public enum EmphasisInsert {
                     .dropLast(marker.count))
                 let start = range.location
                 let out = ns.replacingCharacters(in: range, with: stripped)
-                return (out, start + stripped.utf16.count, nil)
+                return Plan(text: out, caret: start + stripped.utf16.count,
+                        selected: nil)
             }
             let wrapped = marker + inner + marker
             let out = ns.replacingCharacters(in: range, with: wrapped)
-            return (out, range.location + wrapped.utf16.count, nil)
+            return Plan(text: out, caret: range.location + wrapped.utf16.count,
+                        selected: nil)
         }
         let inner = ns.substring(with: clamped)
         // Emphasis is stripped per *word*, so a marker pair around several
@@ -565,20 +595,22 @@ public enum EmphasisInsert {
                 .map { marker + $0 + marker }
                 .joined(separator: " ")
             let out = ns.replacingCharacters(in: clamped, with: wrapped)
-            return (out, clamped.location + wrapped.utf16.count,
-                    NSRange(location: clamped.location + marker.utf16.count,
-                            length: inner.utf16.count))
+            return Plan(text: out, caret: clamped.location + wrapped.utf16.count,
+                        selected: NSRange(location: clamped.location + marker.utf16.count,
+                                          length: inner.utf16.count))
         }
         if isEmphasised(inner, marker: marker) {
             let stripped = String(inner.dropFirst(marker.count).dropLast(marker.count))
             let out = ns.replacingCharacters(in: clamped, with: stripped)
-            return (out, clamped.location + stripped.utf16.count, nil)
+            return Plan(text: out, caret: clamped.location + stripped.utf16.count,
+                        selected: nil)
         }
         let wrapped = marker + inner + marker
         let out = ns.replacingCharacters(in: clamped, with: wrapped)
         let caret = clamped.location + wrapped.utf16.count
-        return (out, caret, NSRange(location: clamped.location + marker.utf16.count,
-                                    length: inner.utf16.count))
+        return Plan(text: out, caret: caret,
+                    selected: NSRange(location: clamped.location + marker.utf16.count,
+                                      length: inner.utf16.count),)
     }
 
     static func isEmphasised(_ word: String, marker: String) -> Bool {

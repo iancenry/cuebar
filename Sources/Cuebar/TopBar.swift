@@ -1,9 +1,14 @@
 import SwiftUI
 import PromptCore
 
-/// Slim content-column strip: mode switcher left, live status right.
+/// Slim content-column strip: the mode switcher, alone.
+///
 /// No app title — the menu bar and Dock already carry the name, and the
-/// traffic lights live over the sidebar.
+/// traffic lights live over the sidebar. No settings cog either: it is in the
+/// menu bar, where every other Mac app keeps it, and a duplicate control in two
+/// places is a control that drifts. The live status moved to the transport
+/// dock's trailing group, level with Practice and Record, so the top edge
+/// carries nothing but the mode you are in.
 struct TopBar: View {
     @Bindable var settings: SettingsStore
     @Bindable var engine: PromptEngine
@@ -13,55 +18,12 @@ struct TopBar: View {
     /// Rehearsal, so the floating prompter hides what the window hides.
     var practice: PracticeController? = nil
     @Binding var mode: PerformMode
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         HStack(spacing: 10) {
             ModeSwitcher(mode: $mode)
-            Spacer()
-            StatusPill(isPlaying: engine.isPlaying, showElapsed: settings.settings.showElapsed,
-                       holdRemaining: engine.holdRemaining,
-                       pauseReason: engine.pauseReason)
-            if settings.settings.guidance.usesVoice {
-                MicStatus(voice: voice, compact: true)
-            }
-            Menu {
-                Picker("Display", selection: $settings.settings.overlayMode) {
-                    Text("Notch").tag(CueSettings.OverlayMode.notch)
-                    Text("Floating").tag(CueSettings.OverlayMode.floating)
-                    Text("Fullscreen").tag(CueSettings.OverlayMode.fullscreen)
-                }
-                Button(overlay.isShowing ? "Close Overlay" : "Pop Out") {
-                    overlay.toggle(engine: engine, settings: settings, index: index,
-                                   voice: voice, practice: practice)
-                }
-                Divider()
-                Picker("Follow mode", selection: $settings.settings.guidance) {
-                    Text("Traditional").tag(CueSettings.GuidanceMode.classic)
-                    Text("Smart (word tracking)").tag(CueSettings.GuidanceMode.wordTracking)
-                    Text("Voice (speak/pause)").tag(CueSettings.GuidanceMode.voiceActivated)
-                    Text("Auto (WPM)").tag(CueSettings.GuidanceMode.auto)
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-                Divider()
-                Button("Settings…") { openSettings() }
-            } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(CuePalette.muted)
-                    .frame(width: CuePalette.chromeControlHeight,
-                           height: CuePalette.chromeControlHeight)
-                    .contentShape(Circle())
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .glassSurface(in: Circle(), interactive: true)
-            .help("Display, follow mode and settings")
-            .accessibilityLabel("Display, follow mode and settings")
+            Spacer(minLength: 0)
         }
-        .glassGroup(spacing: 12)
         .padding(.horizontal, CuePalette.chromeRowMargin)
         // Fixed, not derived: whatever a control measures, the band stays
         // the title-bar line and the controls centre on it.

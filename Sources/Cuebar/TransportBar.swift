@@ -111,7 +111,21 @@ struct TransportBar: View {
                         Divider().frame(height: 14)
                     }
                     if let recorder { RunHUD(recorder: recorder) }
-                    Spacer(minLength: 0)
+                    Spacer(minLength: 12)
+                    // Paused and Mic-off live here, level with Practice and
+                    // Record and at the opposite end of the row. They were in
+                    // the top bar, which put the two things a presenter looks
+                    // for while speaking — am I playing, is it hearing me — on
+                    // opposite edges of the window from the controls that
+                    // change them.
+                    Divider().frame(height: 14)
+                    StatusPill(isPlaying: engine.isPlaying,
+                               showElapsed: settings.settings.showElapsed,
+                               holdRemaining: engine.holdRemaining,
+                               pauseReason: engine.pauseReason)
+                    if settings.settings.guidance.usesVoice {
+                        MicStatus(voice: voice, compact: true)
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)

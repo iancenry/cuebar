@@ -119,6 +119,7 @@ struct KeyboardTab: View {
         case .playback: return "Playback"
         case .stage: return "Stage"
         case .script: return "Script"
+        case .format: return "Format"
         }
     }
 }

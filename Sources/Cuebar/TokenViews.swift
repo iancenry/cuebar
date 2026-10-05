@@ -77,13 +77,14 @@ struct TokenPageView: View {
                            lineSpacing: fontSize * settings.lineSpacing) {
                     ForEach(Array(para.enumerated()), id: \.offset) { _, row in
                         switch row.token {
-                        case .word(let w):
+                        case .word(let w, let emphasised):
                             WordPill(word: w,
                                      isPast: row.wordIndex < current,
                                      isCurrent: row.wordIndex == current,
                                      settings: settings,
                                      fontSize: fontSize,
-                                     isMasked: hiddenWords.contains(row.wordIndex))
+                                     isMasked: hiddenWords.contains(row.wordIndex),
+                                     isEmphasised: emphasised)
                                 .id("w-\(row.wordIndex)")
                                 .onTapGesture { engine.jumpTo(wordIndex: row.wordIndex) }
                         case .cue:
@@ -192,6 +193,11 @@ struct WordPill: View {
     /// changes the line breaks would make every rehearsal look like a
     /// different script.
     var isMasked: Bool = false
+    /// The author wrote `**like this**`. The markers are gone from the text by
+    /// the time it reaches here — that is the whole point of them being file
+    /// syntax — so without this flag the Bold button would insert something
+    /// that changes nothing a presenter can see.
+    var isEmphasised: Bool = false
 
     private var highlighted: Bool { isCurrent && settings.highlightCurrent }
 
@@ -204,6 +210,22 @@ struct WordPill: View {
     private var font: Font {
         settings.fontFamily.font(size: fontSize,
                                  weight: isCurrent ? .bold : settings.fontWeight.weight)
+    }
+
+    /// The colour this word is drawn in.
+    ///
+    /// Emphasis is the reading accent, and **never** a heavier weight: weight
+    /// changes a word's width, and on the prompter the line breaks *are* the
+    /// presenter's cue structure. `MaskedWordWidth` exists because a word whose
+    /// width changes re-wraps the page, so an editor button that silently
+    /// re-wrapped the script every time it was used would be its own bug.
+    /// Colour costs nothing and reads at three metres.
+    ///
+    /// A word already behind the playhead dims like any other — emphasis that
+    /// outlived its moment is noise.
+    private var ink: Color {
+        if isEmphasised && !isPast && !highlighted { return CuePalette.readingAccent }
+        return isPast ? CuePalette.muted.opacity(0.6) : settings.textColor.color
     }
 
     private var tracking: CGFloat {
@@ -239,12 +261,14 @@ struct WordPill: View {
                     .shadow(color: settings.highlight.color.opacity(0.35), radius: 12, y: 2)
             case (true, .underline):
                 Text(display)
-                    .foregroundStyle(settings.textColor.color)
+                    .foregroundStyle(ink)
                     .underline(true, color: settings.highlight.color)
             case (true, .bold), (false, _):
+                // The current word keeps its own colour under the pill: the
+                // highlight is the stronger signal, and tinting the word the
+                // pill is drawn in would make the two fight.
                 Text(display)
-                    .foregroundStyle(isCurrent ? settings.textColor.color
-                        : (isPast ? CuePalette.muted.opacity(0.6) : settings.textColor.color))
+                    .foregroundStyle(isCurrent && highlighted ? settings.textColor.color : ink)
             }
             }
         }

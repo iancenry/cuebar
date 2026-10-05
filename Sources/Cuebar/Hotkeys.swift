@@ -35,6 +35,11 @@ struct AppCommandBridge {
     /// app, so both are app-level.
     var analyseScript: () -> Void
     var scriptTools: () -> Void
+    /// The editor's own text commands. They need a caret, so they are *not*
+    /// app-level — but they are reached from here rather than from a view,
+    /// because the key monitor is the only thing allowed to own a chord.
+    var toggleBold: () -> Void = {}
+    var toggleItalic: () -> Void = {}
 }
 
 /// Everything a command needs from the view tree. `mode` is a binding so
@@ -155,6 +160,10 @@ final class HotkeyCenter {
         case .analyseScript: app?.analyseScript(); return
         case .scriptTools: app?.scriptTools(); return
         case .insertCue: app?.showCuePalette(); return
+        // Dispatched with the rest, before the context is demanded: the
+        // commands are editor commands and the editor is the window.
+        case .toggleBold: app?.toggleBold(); return
+        case .toggleItalic: app?.toggleItalic(); return
         default: break
         }
         // "Never lose your place" is dispatched before the context is demanded:
@@ -219,7 +228,8 @@ final class HotkeyCenter {
             context.recorder?.toggle()
         case .insertCue, .newScript, .importScripts, .exportScript,
              .newScriptFromClipboard, .importFromWeb, .togglePractice,
-             .revealPractice, .analyseScript, .scriptTools:
+             .revealPractice, .analyseScript, .scriptTools,
+             .toggleBold, .toggleItalic:
             break // handled above
         }
     }

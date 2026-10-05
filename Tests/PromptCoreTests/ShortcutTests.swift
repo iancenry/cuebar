@@ -157,9 +157,38 @@ import Foundation
         for action in ShortcutAction.allCases {
             #expect(!action.title.isEmpty)
             #expect(!action.help.isEmpty)
-            #expect(ShortcutAction.allCases.filter { $0.group == action.group }.count >= 4)
         }
-        #expect(Set(ShortcutAction.allCases.map(\.group)).count == 3)
+        // No group may be a section of one row — the Keyboard page renders a
+        // titled section per group, so a single command in one is a heading
+        // with nothing under it. The three big groups each carry a screen;
+        // `format` is two chords, which is a deliberate small section.
+        for group in ShortcutAction.Group.allCases {
+            let count = ShortcutAction.allCases.filter { $0.group == group }.count
+            #expect(count >= 2, "\(group.rawValue) has only \(count) command(s)")
+        }
+        #expect(Set(ShortcutAction.allCases.map(\.group)).count == 4)
+    }
+
+    /// ⌘B and ⌘I have to survive the editor gate, or they are two dead chords.
+    ///
+    /// The gate is two rules deep and each one can swallow them: `isEditorSafe`
+    /// decides whether a command answers at all while the editor has focus,
+    /// and the "⌘ and ⌃ belong to macOS in a text field" rule then forwards
+    /// every ⌘-chord except the ones named `isCommandSafeInEditor`. A command
+    /// that cleared the first and failed the second looked perfectly wired —
+    /// a menu row, a default chord, a dispatcher case — and did nothing. That
+    /// is how five commands were stranded once already.
+    @Test func theEmphasisChordsReachTheEditor() {
+        #expect(ShortcutAction.toggleBold.isEditorSafe)
+        #expect(ShortcutAction.toggleItalic.isEditorSafe)
+        #expect(ShortcutAction.toggleBold.isCommandSafeInEditor)
+        #expect(ShortcutAction.toggleItalic.isCommandSafeInEditor)
+        for action in [ShortcutAction.toggleBold, ShortcutAction.toggleItalic] {
+            #expect(action.defaultChord.modifiers.contains(.command),
+                    "\(action) needs a modifier or it would type")
+            #expect(ShortcutAction.allCases.filter { $0.defaultChord == action.defaultChord }
+                .count == 1, "\(action)'s chord is not unique")
+        }
     }
 
     /// Every recorded chord must be displayable, or the Keyboard tab and the

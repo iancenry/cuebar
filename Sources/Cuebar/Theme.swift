@@ -87,30 +87,22 @@ extension CueSettings.SurfaceStyle {
 // talking. Chrome uses the same tokens so main window, overlay, and
 // settings all speak one design language.
 
-/// The colours, as data.
-///
-/// A theme is a row of hex values, which is the whole reason thirty of them is
-/// possible: adding one is a line here, not a change to the palette, the views,
-/// or the resolution rules in `ThemeChoice`.
-struct ThemeTokens {
-    var surface = ""
-    var chrome = ""
-    var sidebar = ""
-    var card = ""       // rgba — the alpha is part of the value
-    var ink = ""
-    var muted = ""
-    var inkMuted = ""
-    var stone = ""
-    var graphite = ""
-    var accent = ""
-    var onAccent = ""
-    var live = ""
-    var hairline = ""
-    var hover = ""
-    var selection = ""
+extension Color {
+    /// The two forms a theme file needs, parsed by `RGBAColor` — which is in
+    /// PromptCore precisely because this one function was wrong once and had
+    /// no test.
+    init(hex: String) {
+        let value = RGBAColor(hex: hex)
+        self.init(.sRGB, red: value.red, green: value.green, blue: value.blue,
+                  opacity: value.alpha)
+    }
+}
 
-    /// A light wash drawn *over* `ink`. Stored as a hex so a theme stays a row
-    /// of values rather than a block of expressions.
+/// The colours as SwiftUI values.
+///
+/// The token *data* moved to PromptCore (`ThemeTokens`, `ThemeTable`) so its
+/// contrast could be tested; this is the only part that needs a renderer.
+extension ThemeTokens {
     var cardColor: Color { Color(hex: card) }
     var hairlineColor: Color { Color(hex: hairline) }
     var hoverColor: Color { Color(hex: hover) }
@@ -126,95 +118,26 @@ struct ThemeTokens {
     var accentColor: Color { Color(hex: accent) }
     var onAccentColor: Color { Color(hex: onAccent) }
     var liveColor: Color { Color(hex: live) }
-
-    /// Dark themes start their washes with white and light themes with black,
-    /// so `card`/`hairline`/`hover`/`selection` only need an alpha in the data.
-    static func dark(_ surface: String, _ chrome: String, _ sidebar: String,
-                     _ ink: String, _ muted: String, _ inkMuted: String,
-                     _ stone: String, _ graphite: String, _ accent: String,
-                     _ onAccent: String, _ live: String) -> ThemeTokens {
-        ThemeTokens(surface: surface, chrome: chrome, sidebar: sidebar,
-                    card: "#FFFFFF14", ink: ink, muted: muted, inkMuted: inkMuted,
-                    stone: stone, graphite: graphite, accent: accent,
-                    onAccent: onAccent, live: live,
-                    hairline: "#FFFFFF14", hover: "#FFFFFF0D", selection: "#FFFFFF16")
-    }
-
-    static func light(_ surface: String, _ chrome: String, _ sidebar: String,
-                      _ ink: String, _ muted: String, _ inkMuted: String,
-                      _ stone: String, _ graphite: String, _ accent: String,
-                      _ onAccent: String, _ live: String) -> ThemeTokens {
-        ThemeTokens(surface: surface, chrome: chrome, sidebar: sidebar,
-                    card: "#0000000A", ink: ink, muted: muted, inkMuted: inkMuted,
-                    stone: stone, graphite: graphite, accent: accent,
-                    onAccent: onAccent, live: live,
-                    hairline: "#00000014", hover: "#00000008", selection: "#00000010")
-    }
 }
 
-extension Color {
-    /// The two forms a theme file needs, parsed by `RGBAColor` — which is in
-    /// PromptCore precisely because this one function was wrong once and had
-    /// no test.
-    init(hex: String) {
-        let value = RGBAColor(hex: hex)
-        self.init(.sRGB, red: value.red, green: value.green, blue: value.blue,
-                  opacity: value.alpha)
-    }
-}
-
-/// The themes, and which layer each one is for.
+/// A theme, for the picker. A thin view over `ThemeSpec`: the table is the
+/// single source of truth, so a theme cannot exist in the picker and not in
+/// `applyThemes` (or the other way round).
 struct CueTheme: Identifiable {
-    var id: String
-    var name: String
-    var symbol: String
-    var summary: String
-    var tokens: ThemeTokens
+    var spec: ThemeSpec
+    var id: String { spec.id }
+    var name: String { spec.name }
+    var symbol: String { spec.symbol }
+    var summary: String { spec.summary }
+    var tokens: ThemeTokens { spec.tokens }
     /// Whether this theme is meant for the reading surface as well as the
     /// chrome. A light chrome theme is not: it would give a white prompter.
-    var isForSurface: Bool
+    var isForSurface: Bool { spec.isForSurface }
 
-    static let shipped: [CueTheme] = [
-        CueTheme(
-            id: ThemeCatalog.dark, name: "Dark", symbol: "circle.lefthalf.filled",
-            summary: "The one Cuebar has always shipped. Near-black, warm accent.",
-            tokens: .dark("#0F0F11", "#1B1B1E", "#16161A", "#ECECEE", "#8A8A8F",
-                          "#A8A8AF", "#B8B8BD", "#1C1C1F", "#FF8F4D",
-                          "#1A120B", "#73D98C"),
-            isForSurface: true),
-        CueTheme(
-            id: ThemeCatalog.oled, name: "OLED", symbol: "circle.fill",
-            summary: "True black, for the OLED MacBooks. Saves power, hides seams.",
-            tokens: .dark("#000000", "#0C0C0E", "#08080A", "#FFFFFF", "#8E8E93",
-                          "#AEAEB2", "#C0C0C6", "#171719", "#FF9147",
-                          "#1A120B", "#5BD98A"),
-            isForSurface: true),
-        CueTheme(
-            id: ThemeCatalog.warm, name: "Warm", symbol: "flame",
-            summary: "Sepia-toned. Gentler for a long rehearsal, and in a dark room.",
-            tokens: .dark("#14110D", "#221D17", "#1B1712", "#F4EDE2", "#9A8F7E",
-                          "#B5A794", "#C8B9A3", "#241F19", "#E9A05C",
-                          "#1B1208", "#8FCB8A"),
-            isForSurface: true),
-        CueTheme(
-            id: ThemeCatalog.light, name: "Light", symbol: "sun.max",
-            summary: "For a bright room. The prompter stays dark on purpose.",
-            tokens: .light("#F6F6F7", "#FFFFFF", "#EFEFF1", "#1B1B1E", "#6B6B70",
-                           "#83838A", "#4A4A50", "#E4E4E8", "#D2622A",
-                           "#FFFFFF", "#1F8A45"),
-            isForSurface: false),
-        CueTheme(
-            id: ThemeCatalog.highContrast, name: "High Contrast",
-            symbol: "circle.righthalf.filled",
-            summary: "Maximum contrast, no washes. A mode, not a look.",
-            tokens: .dark("#000000", "#000000", "#000000", "#FFFFFF", "#FFFFFF",
-                          "#FFFFFF", "#FFFFFF", "#000000", "#FFD400",
-                          "#000000", "#00FF66"),
-            isForSurface: true),
-    ]
+    static var shipped: [CueTheme] { ThemeTable.themes.map { CueTheme(spec: $0) } }
 
     static func theme(_ id: String) -> CueTheme {
-        shipped.first { $0.id == id } ?? shipped[0]
+        CueTheme(spec: ThemeTable.theme(id))
     }
 }
 

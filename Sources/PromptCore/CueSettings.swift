@@ -161,7 +161,13 @@ public struct CueSettings: Codable, Equatable, Sendable {
     /// different requirements — see `ThemeChoice`. Both are ids rather than
     /// colours, so a theme that ships later is a new value rather than a
     /// migration.
-    public var theme: String = ThemeChoice.followSystem
+    ///
+    /// **Defaults to Dark, not to the system.** Light is reachable from the
+    /// Theme page and its contrast is now checked by test, but nobody has
+    /// looked at it on a real screen yet — and "follow the system" would hand
+    /// it to every user in Light Mode on first launch, which is shipping it
+    /// first. One line to change once it has been seen.
+    public var theme: String = ThemeCatalog.dark
     /// The reading surface's theme id, or `""` to follow the chrome theme
     /// (falling back to dark when the chrome theme is light).
     public var surfaceTheme: String = ""

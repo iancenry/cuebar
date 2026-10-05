@@ -383,7 +383,7 @@ import Foundation
     /// script from the one the driver cues.
     @Test func bothScannersAgree() {
         let tokenisedWords = ScriptParser.parse(body).compactMap { token -> String? in
-            if case .word(let text) = token { return text }
+            if case .word(let text, _) = token { return text }
             return nil
         }
         #expect(tokenisedWords == ScriptParser.words(body),

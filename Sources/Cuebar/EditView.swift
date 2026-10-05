@@ -83,20 +83,11 @@ struct EditView: View {
                 // levels teaches the convention *and* makes the whole format
                 // reachable — the button was a third of the feature wearing
                 // a label that implied all of it.
-                // Bold and italic, next to the heading menu: three ways to
-                // say something, no more. Lists and quotes are deliberately
+                // Lists and quotes are deliberately
                 // absent — a `- ` or `> ` at the start of a line is read aloud
                 // today, and supporting them properly means the parser, the
                 // prompter and export all change. That is a later decision, not
                 // a button.
-                Button { insertEmphasis(marker: "**") } label: {
-                    Label("Bold", systemImage: "bold")
-                }
-                .help("Bold the selection, or the word at the caret")
-                Button { insertEmphasis(marker: "*") } label: {
-                    Label("Italic", systemImage: "italic")
-                }
-                .help("Italicise the selection, or the word at the caret")
                 Menu {
                     Button("Major section") { insertSection(level: 1) }
                     Button("Section") { insertSection(level: 2) }
@@ -222,6 +213,8 @@ struct EditView: View {
                 Spacer()
                 Text("⌘K cues")
                 Text("·")
+                Text("⌘B/⌘I bold, italic")
+                Text("·")
                 Text("## adds a section")
             }
             .font(.caption)
@@ -301,19 +294,6 @@ struct EditView: View {
     /// places. The caret is restored on the next turn, once the new text has
     /// landed. A button with no caret — the editor not focused — does
     /// nothing, and says so by being disabled.
-    private func insertEmphasis(marker: String) {
-        guard let view = editorTextView else { return }
-        let plan = EmphasisInsert.plan(for: view.string, selection: view.selectedRange(),
-                                      marker: marker)
-        draftBody = plan.text
-        let clamped = min(plan.caret, plan.text.utf16.count)
-        // The next turn, once the new text has landed — the same reason
-        // `insertSection` defers rather than setting the range immediately.
-        DispatchQueue.main.async {
-            view.setSelectedRange(plan.selected ?? NSRange(location: clamped, length: 0))
-        }
-    }
-
     private func insertSection(level: Int) {
         guard let view = editorTextView else { return }
         let plan = SectionInsert.plan(for: view.string, caret: view.selectedRange().location,
