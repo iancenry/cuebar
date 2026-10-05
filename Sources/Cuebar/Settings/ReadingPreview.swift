@@ -74,6 +74,10 @@ struct ReadingPreview: View {
                         .allowsHitTesting(false)
                 }
             }
+            // The preview mirrors when the prompter does, so the Display
+            // tab shows the effect instead of describing it.
+            .scaleEffect(x: settings.mirror.flipsHorizontally ? -1 : 1,
+                         y: settings.mirror.flipsVertically ? -1 : 1)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.08)))
             .frame(minHeight: 110)

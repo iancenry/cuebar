@@ -84,6 +84,28 @@ public struct CueSettings: Codable, Equatable, Sendable {
     public enum SurfaceStyle: String, Codable, Sendable, CaseIterable {
         case espresso, black, slate
     }
+    /// How the reading surface is mirrored for teleprompter glass.
+    ///
+    /// Horizontal is the beam-splitter case: the presenter reads the screen
+    /// through front-silvered glass, which un-flips the text. Vertical covers
+    /// periscope rigs that fold the light twice. It flips the *script only* —
+    /// the chrome keeps facing the operator, because the person driving the
+    /// controls is never the person reading through the glass.
+    public enum MirrorMode: String, Codable, Sendable, CaseIterable {
+        case none, horizontal, vertical, both
+
+        public var label: String {
+            switch self {
+            case .none: return "Off"
+            case .horizontal: return "Horizontal"
+            case .vertical: return "Vertical"
+            case .both: return "Both"
+            }
+        }
+
+        public var flipsHorizontally: Bool { self == .horizontal || self == .both }
+        public var flipsVertically: Bool { self == .vertical || self == .both }
+    }
     public enum TextAlignment: String, Codable, Sendable, CaseIterable {
         case leading, center
     }
@@ -241,6 +263,20 @@ public struct CueSettings: Codable, Equatable, Sendable {
     public var hidePunctuation: Bool = false
     public var showProgress: Bool = true
     public var showCenterLine: Bool = true
+    /// Mirror the reading surface for teleprompter glass. Off by default:
+    /// it is a rig decision, not a preference, and a presenter who reads
+    /// off the raw screen wants nothing flipped.
+    public var mirror: MirrorMode = .none
+    /// Hold a power assertion while the prompter is up or reading, so a
+    /// mid-talk display sleep never happens. On by default: the failure it
+    /// prevents (a dark screen in front of an audience) is far worse than
+    /// the cost (a Mac that stays awake until the prompter comes down).
+    public var preventSleepWhilePresenting: Bool = true
+    /// The talk's target length, in minutes. Nil is off. When set, the
+    /// status pill and the phone show how far ahead or behind the pace is —
+    /// a *display*, never a speed change: Cuebar does not take over the
+    /// reading rate the presenter chose.
+    public var targetMinutes: Double? = nil
 
     /// Rendering window, clamped so a corrupt pref can't explode the view tree.
     public var clampedPageSize: Int { min(600, max(50, pageSize)) }
@@ -276,6 +312,13 @@ public struct CueSettings: Codable, Equatable, Sendable {
     }
 
     public var clampedParagraphSpacing: Double { min(1.5, max(0, paragraphSpacing)) }
+
+    /// One clamp for every writer of the target length, same reason as
+    /// `clampedWPM`: a hand-edited preferences file cannot ask for a
+    /// six-hour "ten minute" talk or a negative one.
+    public static func clampedTargetMinutes(_ value: Double) -> Double {
+        min(240, max(1, value.rounded()))
+    }
 
     /// Hold-to-boost multiplier, clamped so a corrupt pref can't 10× the reader.
     public var clampedCatchUpBoost: Double { min(2.5, max(1.2, catchUpBoost)) }
@@ -366,6 +409,11 @@ public struct CueSettings: Codable, Equatable, Sendable {
         // stored property this function forgets is a setting that exists only
         // until the app quits — which is exactly what happened to `ai`.
         presets = decode(.presets, default: defaults.presets)
+        mirror = decode(.mirror, default: defaults.mirror)
+        preventSleepWhilePresenting = decode(.preventSleepWhilePresenting,
+                                             default: defaults.preventSleepWhilePresenting)
+        targetMinutes = decode(.targetMinutes, default: defaults.targetMinutes)
+            .map(Self.clampedTargetMinutes)
         launchAtLogin = decode(.launchAtLogin, default: defaults.launchAtLogin)
         confirmBeforeDeleting = decode(.confirmBeforeDeleting,
                                        default: defaults.confirmBeforeDeleting)

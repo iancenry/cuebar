@@ -264,6 +264,10 @@ struct StatusPill: View {
     /// Why it stopped. A prompter that went quiet by itself must say so, or
     /// the presenter has no idea whether to say something.
     var pauseReason: PromptEngine.PauseReason? = nil
+    /// Distance from the target length (see `PaceTarget`). Positive is
+    /// behind. Shown once the run exists — a fresh script has no pace to
+    /// judge, and "+0:00" next to it is noise.
+    var drift: TimeInterval? = nil
 
     private var label: String {
         if let r = holdRemaining, r > 0.05 {
@@ -274,6 +278,13 @@ struct StatusPill: View {
             return "Paused — \(reason)"
         }
         return "Paused"
+    }
+
+    /// A run exists the moment anything has happened to it. Before that the
+    /// pill stays a status only; afterwards the pace readout earns its place
+    /// — and being able to see "behind" while paused is the point of it.
+    private var runHasStarted: Bool {
+        isPlaying || holdRemaining != nil || pauseReason != nil
     }
 
     var body: some View {
@@ -288,14 +299,31 @@ struct StatusPill: View {
             if isPlaying, showElapsed {
                 ElapsedClock()
             }
+            if showElapsed, runHasStarted, let drift {
+                Text(PaceTarget.format(drift))
+                    .font(.caption).monospacedDigit()
+                    .foregroundStyle(drift < 0 ? CuePalette.live : CuePalette.peach)
+            }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(label)
+        .accessibilityLabel(drift.map { PaceTarget.format($0) }.map { label + ", " + $0 } ?? label)
         .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
         .frame(height: CuePalette.chromeControlHeight)
         .glassSurface(in: Capsule())
+    }
+}
+
+extension StatusPill {
+    /// The live run's drift, or nil with no target. One computation for
+    /// every call site — the pill in the window header, the dock, and the
+    /// phone all read the same number, or they end up disagreeing.
+    static func drift(engine: PromptEngine, targetMinutes: Double?) -> TimeInterval? {
+        guard let minutes = targetMinutes, let word = engine.currentWordIndex else { return nil }
+        return PaceTarget.drift(word: word, totalWords: engine.words.count,
+                                wordsPerSecond: engine.wordsPerSecond,
+                                targetSeconds: minutes * 60)
     }
 }
 

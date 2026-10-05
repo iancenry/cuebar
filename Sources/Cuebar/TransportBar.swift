@@ -122,7 +122,9 @@ struct TransportBar: View {
                     StatusPill(isPlaying: engine.isPlaying,
                                showElapsed: settings.settings.showElapsed,
                                holdRemaining: engine.holdRemaining,
-                               pauseReason: engine.pauseReason)
+                               pauseReason: engine.pauseReason,
+                               drift: StatusPill.drift(engine: engine,
+                                                       targetMinutes: settings.settings.targetMinutes))
                     if settings.settings.guidance.usesVoice {
                         MicStatus(voice: voice, compact: true)
                     }

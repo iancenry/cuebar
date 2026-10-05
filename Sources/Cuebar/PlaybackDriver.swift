@@ -87,6 +87,11 @@ struct PlaybackDriver: View {
     /// Last word index the highlight arrived at, so a backwards jump out of
     /// a cue doesn't re-fire it (see `handleCueArrival`).
     @State private var lastCueArrival: Int?
+    /// The display stays awake while the prompter is in use. Lives here
+    /// because this view already observes both inputs — play state and the
+    /// overlay — and a second observer elsewhere would be a second owner of
+    /// the assertion.
+    @State private var sleep = SleepGuard()
 
     var body: some View {
         Color.clear
@@ -94,6 +99,9 @@ struct PlaybackDriver: View {
             .onAppear {
                 engine.naturalPacing = settings.settings.naturalPacing
                 syncTicker()
+                // The window can appear with the prompter already up (it was
+                // reopened while presenting): an edge-only sync would miss that.
+                syncSleep()
             }
             .onChange(of: index) { _, _ in
                 // A new script: every cue is un-armed.
@@ -108,6 +116,12 @@ struct PlaybackDriver: View {
             }
             .onChange(of: settings.settings.naturalPacing) { _, pacing in
                 engine.naturalPacing = pacing
+            }
+            .onChange(of: overlay.isShowing) { _, _ in
+                syncSleep()
+            }
+            .onChange(of: settings.settings.preventSleepWhilePresenting) { _, _ in
+                syncSleep()
             }
             .onChange(of: engine.isPlaying) { _, playing in
                 if playing {
@@ -132,6 +146,7 @@ struct PlaybackDriver: View {
                     // a cue on the first line would never otherwise fire.
                     handleCueArrival(engine.currentWordIndex, force: true)
                 }
+                syncSleep()
             }
             .onChange(of: voice.state) { _, _ in
                 syncTicker()
@@ -541,6 +556,15 @@ struct PlaybackDriver: View {
         if !force, settings.settings.pauseOnPauseCues, plan.pauses.contains(idx) {
             engine.pause(reason: .cue)
         }
+    }
+
+    /// Keep the Mac awake whenever the prompter is doing its job: reading,
+    /// or parked on the overlay while the presenter talks without it. A
+    /// paused prompter with the overlay down is just an app again, and the
+    /// display may sleep on it.
+    private func syncSleep() {
+        sleep.setActive((engine.isPlaying || overlay.isShowing)
+                        && settings.settings.preventSleepWhilePresenting)
     }
 
     /// Whether the current guidance mode needs a live microphone.

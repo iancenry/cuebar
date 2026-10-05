@@ -349,7 +349,8 @@ struct ContentView: View {
                                index: overlay.currentIndex,
                                isFollowing: overlay.isFollowing,
                                isMicMuted: voice.isMutedByUser,
-                               slide: slideSync.slide)
+                               slide: slideSync.slide,
+                               targetMinutes: settings.settings.targetMinutes)
             },
             // No `[weak self]`: ContentView is a struct, and the controller
             // is owned by it, so the closure's lifetime is the view's. A

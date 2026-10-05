@@ -52,6 +52,7 @@ import Foundation
         settings.smartPause = .aggressive
         settings.speechLanguage = "en-GB"
         settings.ai.baseURL = "https://example.invalid/v1"
+        settings.mirror = .both
 
         let decoded = try JSONDecoder().decode(
             CueSettings.self, from: try JSONEncoder().encode(settings))
@@ -69,6 +70,30 @@ import Foundation
         #expect(decoded.smartPause == .aggressive)
         #expect(decoded.speechLanguage == "en-GB")
         #expect(decoded.ai.baseURL == "https://example.invalid/v1")
+        #expect(decoded.mirror == .both)
+    }
+
+    /// The target length's default is nil, which the sweep cannot reach (its
+    /// own header says so) — so it is named here, set and round-tripped, and
+    /// the clamp is pinned at the same time. The clamp rounds: every writer
+    /// (stepper, slider, hand-edited file) lands on a whole minute.
+    @Test func targetMinutesSurvivesAndClamps() throws {
+        var settings = CueSettings()
+        settings.targetMinutes = 12
+        let decoded = try JSONDecoder().decode(
+            CueSettings.self, from: try JSONEncoder().encode(settings))
+        #expect(decoded.targetMinutes == 12)
+
+        settings.targetMinutes = 999
+        let clamped = try JSONDecoder().decode(
+            CueSettings.self, from: try JSONEncoder().encode(settings))
+        #expect(clamped.targetMinutes == 240)
+        #expect(CueSettings.clampedTargetMinutes(0.4) == 1)
+        #expect(CueSettings.clampedTargetMinutes(12.5) == 13)
+
+        let off = #"{"wordsPerMinute":140}"#
+        let defaults = try JSONDecoder().decode(CueSettings.self, from: Data(off.utf8))
+        #expect(defaults.targetMinutes == nil, "an old file reads as off")
     }
 
     /// A new enum-shaped setting arrives in a pull request, nobody adds it to
@@ -98,7 +123,7 @@ import Foundation
         "theme", "surfaceTheme", "guidance", "fontFamily", "textSize", "cueColor",
         "cueBrightness", "overlayMode", "displayTarget", "transcriptionEngine",
         "fontWeight", "textColor", "surfaceStyle", "textAlignment", "highlight",
-        "highlightStyle", "deckApp", "smartPause", "speechLanguage",
+        "highlightStyle", "deckApp", "smartPause", "speechLanguage", "mirror",
         "ai.provider", "ai.model", "ai.baseURL",
         "shortcuts.playPause", "shortcuts.restart", "shortcuts.nextCue",
         "shortcuts.previousCue", "shortcuts.jumpBack", "shortcuts.jumpForward",

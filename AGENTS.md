@@ -9,7 +9,7 @@ macOS teleprompter (SwiftPM, Swift 6, SwiftUI). Two targets:
 
 ```bash
 swift build
-swift test                     # 385 tests, PromptCore only — view logic is untested by design
+swift test                     # 618 tests, PromptCore only — view logic is untested by design
 ./Scripts/make-app.sh          # build dist/Cuebar.app (debug); pass "release" for release
 open dist/Cuebar.app
 ```
@@ -46,6 +46,16 @@ and ad-hoc signs it.
   the prompter rendering a different script from the one the driver cues.
 - `Shortcuts.swift` (PromptCore) — `KeyChord` / `ShortcutAction` / `ShortcutMap`:
   the whole remapping model, AppKit-free and unit-tested.
+- `PaceTarget` (PromptCore) — fit-to-time arithmetic: drift against
+  `targetMinutes` (CueSettings), position-based not wall-clock, so thinking
+  time is never counted against the presenter. A readout only — nothing
+  changes the reading speed to hit the target. Shown in `StatusPill` (once a
+  run exists) and on the phone (`driftSeconds` in `RemoteSnapshot`).
+- `SleepGuard` — one `ProcessInfo.beginActivity` power assertion held while
+  the engine is playing **or** the overlay is up, released when both are
+  false. Owned by `PlaybackDriver` (the only view that already observes both
+  inputs); idempotent so double-fires can't stack assertions. The token type
+  is `any NSObjectProtocol` — the SDK deleted the typed activity class.
 - `OverlayController` — NSPanel (notch/floating/fullscreen), chrome-only refresh.
 - `HotkeyCenter` — one dispatcher for every command: menu items and keys both
   go through `perform(_:)`, so a rebind moves the command and its menu row.
@@ -560,6 +570,12 @@ and ad-hoc signs it.
   with `unzip -l` + `xmllint` + `textutil -convert txt`.
 - `glassSurface(in:)` wraps Liquid Glass (macOS 26+) with a card fallback —
   glass goes on floating chrome only, never on the reading surface.
+- **Mirror flips the reading surface only.** The `scaleEffect` sits on the
+  scroll ZStack in `PrompterBody` (and `ReadingPreview`), never on the
+  header/footer/page controls: the glass un-flips the script for the
+  presenter, while whoever drives the controls still faces readable chrome.
+  `scaleEffect` is a transform, not a re-layout — anchoring, fades and
+  tap-to-jump all work in the flipped space.
 - `.build/debug` is a **symlink** — `find`/globs need a trailing slash.
 
 ## Conventions

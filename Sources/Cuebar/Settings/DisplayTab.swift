@@ -65,6 +65,22 @@ struct DisplayTab: View {
                           isOn: $settings.settings.hideMainWhilePresenting,
                           caption: "The main window steps aside when the overlay opens and returns when it closes.")
             }
+            SettingsSection(title: "Mirror") {
+                SettingRow(label: "Flip reading surface") {
+                    Picker("Mirror", selection: $settings.settings.mirror) {
+                        ForEach(CueSettings.MirrorMode.allCases, id: \.self) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+                SettingsCaption(text: "Mirrors the script for beam-splitter glass (horizontal) and periscope rigs (vertical). Only the text flips — the controls keep facing whoever drives them, and the preview below shows the result.")
+            }
+            SettingsSection(title: "Power") {
+                ToggleRow(title: "Keep the display awake while presenting",
+                          isOn: $settings.settings.preventSleepWhilePresenting,
+                          caption: "Holds a power assertion while the prompter is up or reading, so the screen never sleeps mid-talk — standing at a lectern looks like idle to the OS. It releases when playback stops and the overlay comes down.")
+            }
             SettingsSection(title: "Dimensions") {
                 LabeledSlider(title: "Width",
                               display: "\(Int(settings.settings.overlayWidth)) px",

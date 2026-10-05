@@ -135,6 +135,14 @@ struct PrompterBody: View {
                     }
                     .allowsHitTesting(false)
                 }
+                // Beam-splitter mirror. Applied to the reading surface only —
+                // the glass un-flips the script for the presenter while the
+                // operator (often the same person, from the keyboard or the
+                // phone) keeps facing readable controls. scaleEffect is a
+                // transform, not a re-layout: the scroll anchoring, the fades
+                // and the hit-testing all work in the flipped space.
+                .scaleEffect(x: settings.settings.mirror.flipsHorizontally ? -1 : 1,
+                             y: settings.settings.mirror.flipsVertically ? -1 : 1)
                 .onChange(of: engine.currentWordIndex) { _, new in
                     guard follow, let idx = new else { return }
                     DispatchQueue.main.async {
@@ -237,7 +245,9 @@ struct PrompterBody: View {
         HStack(spacing: 12) {
             StatusPill(isPlaying: engine.isPlaying, showElapsed: settings.settings.showElapsed,
                        holdRemaining: engine.holdRemaining,
-                       pauseReason: engine.pauseReason)
+                       pauseReason: engine.pauseReason,
+                       drift: StatusPill.drift(engine: engine,
+                                               targetMinutes: settings.settings.targetMinutes))
             if settings.settings.guidance.usesVoice {
                 MicStatus(voice: voice, compact: compact || !showSpeed)
             }

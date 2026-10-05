@@ -41,6 +41,12 @@ public struct RemoteSnapshot: Equatable, Sendable, Codable {
     /// Seconds elapsed and remaining at the current reading speed.
     public var elapsed: TimeInterval
     public var remaining: TimeInterval
+    /// The talk's target length, when one is set. Nil means "no target":
+    /// the phone hides the pace readout rather than inventing a schedule.
+    public var targetSeconds: TimeInterval? = nil
+    /// Positive is behind schedule, negative ahead — `PaceTarget`'s answer,
+    /// computed from the same position-based clock as `elapsed`.
+    public var driftSeconds: TimeInterval? = nil
 
     public init(title: String, isPlaying: Bool, currentWord: Int, totalWords: Int,
                 wordsPerMinute: Double, sections: [String],
@@ -80,8 +86,9 @@ public struct RemoteSnapshot: Equatable, Sendable, Codable {
     @MainActor
     public init(title: String, engine: PromptEngine, index: ScriptIndex,
                 isFollowing: Bool = false, isMicMuted: Bool = false,
-                slide: Int? = nil) {
+                slide: Int? = nil, targetMinutes: Double? = nil) {
         let here = engine.currentWordIndex ?? 0
+        let targetSeconds = targetMinutes.map { $0 * 60 }
         self.init(title: title,
                   isPlaying: engine.isPlaying,
                   currentWord: here,
@@ -101,6 +108,13 @@ public struct RemoteSnapshot: Equatable, Sendable, Codable {
                   remaining: ScriptTime.elapsed(
                       word: max(0, engine.words.count - here),
                       wordsPerSecond: engine.wordsPerSecond))
+        self.targetSeconds = targetSeconds
+        if let targetSeconds {
+            driftSeconds = PaceTarget.drift(word: here,
+                                            totalWords: engine.words.count,
+                                            wordsPerSecond: engine.wordsPerSecond,
+                                            targetSeconds: targetSeconds)
+        }
     }
 
     /// Word index of the next (`1`) or previous (`-1`) section, or nil at

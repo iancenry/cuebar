@@ -64,6 +64,10 @@
     font-size: 11px; font-weight: 600; letter-spacing: .9px;
     text-transform: uppercase; color: var(--ink-dim);
   }
+  #pace { font-size: 11px; font-weight: 600; letter-spacing: .9px;
+          text-transform: uppercase; }
+  #pace.behind { color: var(--accent); }
+  #pace.ahead { color: var(--go); }
 
   /* ── header ─────────────────────────────────────────────── */
   header { display: flex; align-items: baseline; gap: 9px; padding: 2px 4px 0; }
@@ -242,6 +246,7 @@
 
   <div class="row">
     <span class="cap" id="rate">— wpm</span>
+    <span id="pace" hidden></span>
     <button class="restart" id="restart" style="width:auto;padding:0 18px;min-height:44px">↺ Restart</button>
   </div>
 
@@ -305,6 +310,19 @@
     $('elapsed').textContent = fmt(s.elapsed);
     $('total').textContent = fmt(s.elapsed + s.remaining);
     $('rate').textContent = `${Math.round(s.wordsPerMinute)} wpm`;
+
+    // Pace against the target length. Hidden when no target is set — a
+    // phone that says "+0:00" beside every talk with no schedule is noise,
+    // and an absent field means the same thing as null here.
+    const pace = $('pace');
+    if (s.driftSeconds === null || s.driftSeconds === undefined) {
+      pace.hidden = true;
+    } else {
+      const d = s.driftSeconds;
+      pace.hidden = false;
+      pace.textContent = `${d >= 0 ? '+' : '−'}${fmt(Math.abs(d))} ${d >= 0 ? 'behind' : 'ahead'}`;
+      pace.className = d >= 0 ? 'behind' : 'ahead';
+    }
 
     // Slides: hidden entirely for a script with no `[slide]` cues, because a
     // stepper that says "slide 1" is a claim about a deck Cuebar has never

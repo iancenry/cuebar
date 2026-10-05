@@ -41,6 +41,26 @@ struct ReadingTab: View {
                               range: 0.25...2.0, step: 0.05)
                 SettingsCaption(text: "How fast smooth scrolling glides to the current word.")
             }
+            SettingsSection(title: "Target length") {
+                ToggleRow(title: "Finish on time",
+                          isOn: Binding(
+                            get: { settings.settings.targetMinutes != nil },
+                            set: { on in
+                                settings.settings.targetMinutes = on
+                                    ? (settings.settings.targetMinutes ?? 10)
+                                    : nil
+                            }),
+                          caption: "Shows how far ahead or behind your pace is — in the status pill and on the phone. A readout only: Cuebar never changes your speed to make you land on time.")
+                if settings.settings.targetMinutes != nil {
+                    LabeledSlider(title: "Talk length",
+                                  display: "\(Int(settings.settings.targetMinutes ?? 10)) min",
+                                  value: Binding(
+                                    get: { settings.settings.targetMinutes ?? 10 },
+                                    set: { settings.settings.targetMinutes =
+                                        CueSettings.clampedTargetMinutes($0) }),
+                                  range: 1...240, step: 1)
+                }
+            }
             SettingsSection(title: "Scrolling") {
                 SettingRow(label: "Style") {
                     Picker("Scrolling", selection: $settings.settings.smoothScroll) {
