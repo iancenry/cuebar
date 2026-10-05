@@ -5,7 +5,8 @@ struct VoiceTab: View {
     @Bindable var settings: SettingsStore
 
     var body: some View {
-        SettingsTab {
+        SettingsPage(title: "Voice",
+                     subtitle: "Following you. Cuebar listens so the highlight keeps up.") {
             SettingsSection(title: "Follow mode") {
                 SettingRow(label: "Mode") {
                     Picker("Mode", selection: $settings.settings.guidance) {

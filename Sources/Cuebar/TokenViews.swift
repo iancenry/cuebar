@@ -59,6 +59,8 @@ struct TokenPageView: View {
     let page: Int
     let pageSize: Int
     let settings: CueSettings
+    /// Word indices practice mode has hidden. Empty in normal reading.
+    var hiddenWords: Set<Int> = []
 
     private var fontSize: Double { settings.textSize.points * settings.prompterScale }
 
@@ -80,7 +82,8 @@ struct TokenPageView: View {
                                      isPast: row.wordIndex < current,
                                      isCurrent: row.wordIndex == current,
                                      settings: settings,
-                                     fontSize: fontSize)
+                                     fontSize: fontSize,
+                                     isMasked: hiddenWords.contains(row.wordIndex))
                                 .id("w-\(row.wordIndex)")
                                 .onTapGesture { engine.jumpTo(wordIndex: row.wordIndex) }
                         case .cue:
@@ -184,6 +187,11 @@ struct WordPill: View {
     let isCurrent: Bool
     let settings: CueSettings
     let fontSize: Double
+    /// Practice mode: this word is a gap. The *layout* keeps the word's width
+    /// so the page does not reflow the moment somebody peeks — a gap that
+    /// changes the line breaks would make every rehearsal look like a
+    /// different script.
+    var isMasked: Bool = false
 
     private var highlighted: Bool { isCurrent && settings.highlightCurrent }
 
@@ -202,8 +210,25 @@ struct WordPill: View {
         settings.fontFamily.tracking + CGFloat(settings.letterSpacing)
     }
 
+    /// A gap. Drawn as a slot rather than a redaction bar: the presenter
+    /// needs to see that *something* goes here and how long it is.
+    private func maskedBody(width: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(settings.textColor.color.opacity(0.16))
+            .frame(height: max(4, fontSize * 0.34))
+            .frame(width: max(28, width))
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(settings.textColor.color.opacity(0.28))
+                    .frame(height: 1)
+            }
+    }
+
     var body: some View {
         Group {
+            if isMasked && !isCurrent {
+                maskedBody(width: displayWidth)
+            } else {
             switch (highlighted, settings.highlightStyle) {
             case (true, .pill):
                 Text(display)
@@ -221,13 +246,36 @@ struct WordPill: View {
                     .foregroundStyle(isCurrent ? settings.textColor.color
                         : (isPast ? CuePalette.muted.opacity(0.6) : settings.textColor.color))
             }
+            }
         }
         .font(font)
         .tracking(tracking)
-        .accessibilityLabel(word)
+        .accessibilityLabel(isMasked && !isCurrent ? "gap" : word)
         .accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
+
+    /// Roughly the space the word occupied, so a gap does not reflow the page.
+    /// The width of the gap that stands in for this word.
+    ///
+    /// Measured with CoreText, never by bridging a SwiftUI `Font` to AppKit:
+    /// `Font.custom("OpenDyslexic-Bold")` has no `NSFont` to bridge to, and
+    /// the bridge threw inside AppKit's window-layout pass — an Objective-C
+    /// exception on the display cycle is an unconditional `abort`, so practice
+    /// mode crashed on any script with words in it, because masking is the
+    /// only path that reaches this line. See `MaskedWordWidth`.
+    ///
+    /// Arithmetic (half an em per character) was safe from that crash and
+    /// wrong everywhere else: ~21% wide on ordinary prose and ~40% narrow on
+    /// capitals, CJK and emoji. Nothing clipped — the mask is a rectangle — but
+    /// the page re-wrapped whenever a word was unmasked, in a mode whose whole
+    /// promise is that the page does not move.
+    private var displayWidth: CGFloat {
+        MaskedWordWidth.width(of: display, family: settings.fontFamily,
+                              size: fontSize, bold: isCurrent,
+                              tracking: tracking)
+    }
 }
+
 
 /// A section heading in the reading surface. Quiet on purpose — it is a
 /// landmark, not a thing to read — but never silent: a script read from

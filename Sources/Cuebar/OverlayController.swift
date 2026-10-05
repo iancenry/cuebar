@@ -16,6 +16,8 @@ final class OverlayController {
     private var engine: PromptEngine?
     private var store: SettingsStore?
     private var voice: VoiceTracker?
+    /// Rehearsal state, so the floating prompter hides the same words.
+    private var practice: PracticeController?
     private var snapshot = CueSettings()
     private var islandMenuBar: Double = 28
     private var defaultSharing: NSWindow.SharingType = .readOnly
@@ -46,17 +48,21 @@ final class OverlayController {
     var isPresenting: Bool { isShowing }
     var onPresentingChanged: ((Bool) -> Void)?
 
-    func toggle(engine: PromptEngine, settings: SettingsStore, index: ScriptIndex, voice: VoiceTracker) {
-        isShowing ? hide() : show(engine: engine, settings: settings, index: index, voice: voice)
+    func toggle(engine: PromptEngine, settings: SettingsStore, index: ScriptIndex,
+                voice: VoiceTracker, practice: PracticeController? = nil) {
+        isShowing ? hide() : show(engine: engine, settings: settings, index: index,
+                                  voice: voice, practice: practice)
     }
 
-    func show(engine: PromptEngine, settings: SettingsStore, index: ScriptIndex, voice: VoiceTracker) {
+    func show(engine: PromptEngine, settings: SettingsStore, index: ScriptIndex,
+              voice: VoiceTracker, practice: PracticeController? = nil) {
         // Rebuild path (e.g. overlay-mode switch): drop the panel but
         // leave a hidden main window hidden — no restore flicker.
         closePanel()
         self.engine = engine
         self.store = settings
         self.voice = voice
+        self.practice = practice
         currentIndex = index
         self.snapshot = settings.settings
         let chrome = snapshot
@@ -89,8 +95,12 @@ final class OverlayController {
         if chrome.transparencyEnabled {
             p.alphaValue = max(0.3, min(1.0, chrome.transparencyAmount))
         }
+        // A fresh panel always starts clean: a badge latched on from a previous
+        // run would otherwise be waiting behind it with no way to clear.
+        trackingUncertain = false
         let host = NSHostingView(rootView: OverlayPanelView(engine: engine, settings: settings, index: index,
-                                                            voice: voice, follow: followBinding, island: island, menuBarHeight: islandMenuBar,
+                                                            voice: voice, follow: followBinding, practice: practice,
+                                                            island: island, menuBarHeight: islandMenuBar,
                                                             onClose: { [weak self] in self?.hide() }))
         p.contentView = host
         hosting = host
@@ -129,6 +139,8 @@ final class OverlayController {
     /// orphan. Only meaningful while presenting, which is exactly when the
     /// remote is armed.
     private(set) var currentIndex = ScriptIndex(tokens: [])
+    /// Read by the overlay chrome. A state, not a number.
+    private(set) var trackingUncertain = false
 
     /// Live-refresh script text while the overlay stays open.
     func update(index: ScriptIndex) {
@@ -136,8 +148,25 @@ final class OverlayController {
         guard let engine, let store, let voice, isShowing else { return }
         let island = store.settings.overlayMode == .notch
         hosting?.rootView = OverlayPanelView(engine: engine, settings: store, index: index,
-                                             voice: voice, follow: followBinding, island: island, menuBarHeight: islandMenuBar,
+                                             voice: voice, follow: followBinding, practice: practice,
+                                             island: island, menuBarHeight: islandMenuBar,
+                                             trackingUncertain: trackingUncertain,
                                              onClose: { [weak self] in self?.hide() })
+    }
+
+    /// Voice tracking is not following, and the prompter has stopped rather
+    /// than guessed. A *state*, not a number — see `PlaybackDriver`'s note: the
+    /// platform's confidence values are unverified and a presenter cannot act
+    /// on a figure mid-sentence.
+    ///
+    /// **Chrome only.** This deliberately does *not* rebuild the panel: the
+    /// root view contains `PrompterBody`, so re-assigning it rebuilt the whole
+    /// reading surface — and the badge shares a `VStack` with it, so showing
+    /// the badge changed the stack height and shifted the script. The view reads
+    /// `trackingUncertain` off this `@Observable` instead, and the badge lives
+    /// in an `.overlay` where it cannot affect layout at all.
+    func showTrackingUncertain(_ uncertain: Bool) {
+        trackingUncertain = uncertain
     }
 
     /// For the two Follow switches and anything that needs a `Binding`.
@@ -202,6 +231,8 @@ final class OverlayController {
     }
 
     func hide() {
+        // Cleared with the panel: a badge left on would block the next `true`.
+        trackingUncertain = false
         // Remember floating geometry so the panel reopens where the
         // user left it. Anchored modes recompute on show.
         if snapshot.overlayMode == .floating, let frame = panel?.frame {
@@ -271,8 +302,10 @@ final class OverlayController {
     }
 #else
     var isShowing = false
-    func toggle(engine: PromptEngine, settings: SettingsStore, index: ScriptIndex, voice: VoiceTracker) {}
-    func show(engine: PromptEngine, settings: SettingsStore, index: ScriptIndex, voice: VoiceTracker) {}
+    func toggle(engine: PromptEngine, settings: SettingsStore, index: ScriptIndex,
+                voice: VoiceTracker, practice: PracticeController? = nil) {}
+    func show(engine: PromptEngine, settings: SettingsStore, index: ScriptIndex,
+              voice: VoiceTracker, practice: PracticeController? = nil) {}
     func update(index: ScriptIndex) {}
     func hide() {}
     func setFollow(_ on: Bool) {}

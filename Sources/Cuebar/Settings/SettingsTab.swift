@@ -22,20 +22,29 @@ struct SettingsTab<Content: View>: View {
     }
 }
 
-/// Headline + consistently spaced content. Replaces the raw `Section`
-/// usage that rendered headers at uneven indents inside the Form.
+/// A titled group of settings, rendered as a card.
+///
+/// It was a bare heading once, when every setting in the app lived in one flat
+/// scroll. With the page-per-section sidebar each group is a decision the user
+/// makes, and a card per decision is what makes nine pages read as one app.
 struct SettingsSection<Content: View>: View {
     var title: String
     @ViewBuilder let content: () -> Content
 
+    /// A preview draws its own frame, so a card around it is a box inside a
+    /// box. Such sections opt out of the card.
+    var isSelfFramed: Bool { title == "Preview" }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(CuePalette.ink)
-            VStack(alignment: .leading, spacing: 12) {
+        if isSelfFramed {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(CuePalette.ink)
                 content()
             }
+        } else {
+            SettingsCard(title: title) { content() }
         }
     }
 }
@@ -52,7 +61,12 @@ struct SettingRow<Control: View>: View {
                 .font(.callout)
                 .foregroundStyle(CuePalette.ink)
                 .frame(width: 118, alignment: .leading)
+            // The row already names the control. Without this every picker
+            // printed its own title too — "Family  Family  Sans Serif Mono" —
+            // because the row's leading label is not the same thing as a
+            // picker's label, and SwiftUI draws both.
             control()
+                .labelsHidden()
         }
     }
 }

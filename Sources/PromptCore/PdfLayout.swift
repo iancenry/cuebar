@@ -73,6 +73,13 @@ public enum PdfLayout {
 
     /// The script as blocks. Blank lines become paragraph ends, so a blank
     /// line in the editor is a blank line in the PDF.
+    /// Emphasis is file syntax, not speech, and a printed script is speech.
+    /// Without this the editor's Bold button put literal asterisks into every
+    /// exported PDF.
+    static func deemphasised(_ text: String) -> String {
+        ScriptParser.deemphasised(text)
+    }
+
     public static func blocks(from body: String, title: String) -> [Block] {
         var blocks: [Block] = []
         if !title.isEmpty { blocks.append(.title(title)) }
@@ -92,7 +99,7 @@ public enum PdfLayout {
                     continue
                 }
             }
-            blocks.append(.paragraph(trimmed))
+            blocks.append(.paragraph(deemphasised(trimmed)))
         }
         return blocks
     }

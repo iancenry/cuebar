@@ -140,4 +140,56 @@ import Foundation
         let decoded = data.flatMap { try? JSONDecoder().decode(RemoteSnapshot.self, from: $0) }
         #expect(decoded == snapshot)
     }
+
+}
+
+/// A remote is an unauthenticated door into the process, so a malformed
+/// header must be a refusal and never a crash. `Data.prefix(_:)` traps on a
+/// negative count, and the parse runs before the token is checked: one
+/// hand-typed `Content-Length` from anything on the venue wifi was enough to
+/// kill the prompter mid-talk.
+@Suite struct RemoteHTTPMalformedLengthTests {
+    private func request(_ head: String, body: String = "") -> Data {
+        Data((head + "\r\n\r\n" + body).utf8)
+    }
+
+    @Test func aNegativeContentLengthIsRefusedRatherThanParsed() {
+        #expect(RemoteHTTP.parse(request("POST /c HTTP/1.1\r\nContent-Length: -5")) == nil)
+    }
+
+    /// A length that is not a number is read as "no body". That is the
+    /// forgiving reading, and it is safe precisely because nothing ever waits
+    /// for bytes it was not told about: the request is answered from the head
+    /// and the connection closes.
+    @Test func aNonsenseContentLengthMeansNoBody() {
+        let parsed = RemoteHTTP.parse(request("POST /c HTTP/1.1\r\nContent-Length: banana"))
+        #expect(parsed?.needsMoreBody == false)
+        #expect(parsed?.body.isEmpty == true)
+    }
+
+    /// `receive` re-arms until the declared length arrives, so an unbounded
+    /// `Content-Length` is a promise to keep buffering.
+    @Test func anOversizedBodyIsRefused() {
+        let head = "POST /c HTTP/1.1\r\nContent-Length: "
+            + String(9_000_000_000)
+        #expect(RemoteHTTP.parse(request(head)) == nil)
+    }
+
+    @Test func aBodyAtTheLimitIsStillAccepted() {
+        let head = "POST /c HTTP/1.1\r\nContent-Length: "
+            + String(RemoteHTTP.Request.maximumBodyBytes)
+        // Headers only: not a refusal, just a body still arriving.
+        #expect(RemoteHTTP.parse(request(head))?.needsMoreBody == true)
+        #expect(RemoteHTTP.parse(request(head, body: String(repeating: "x", count: 200)))
+            .map { $0.needsMoreBody } == true)
+        // …and the full body is accepted.
+        let full = String(repeating: "x", count: RemoteHTTP.Request.maximumBodyBytes)
+        #expect(RemoteHTTP.parse(request(head, body: full))?.needsMoreBody == false)
+    }
+
+    @Test func aRequestWithNoBodyStillParses() {
+        let parsed = RemoteHTTP.parse(request("GET /state HTTP/1.1"))
+        #expect(parsed?.path == "/state")
+        #expect(parsed?.needsMoreBody == false)
+    }
 }

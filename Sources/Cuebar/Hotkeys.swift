@@ -8,6 +8,14 @@ import AppKit
 /// cue sheet are CuebarApp state, so the keyboard reaches them through this
 /// bridge instead of ContentView owning a second copy.
 struct AppCommandBridge {
+    /// Point the app-level draft at a script. `draftBody` lives here, but it is
+    /// written by the view — so a selection can change with the window closed
+    /// and the two can disagree about which script the draft is the text of.
+    /// `insertCue` checks that id before touching anything.
+    var setDraft: (String, UUID) -> Void = { _, _ in }
+    /// Where the presenter was, and the command that returns there.
+    var positions: PositionStore? = nil
+    var resumeReading: () -> Void = {}
     var showCuePalette: () -> Void
     var newScript: () -> Void
     var importScripts: () -> Void
@@ -18,6 +26,15 @@ struct AppCommandBridge {
     /// when the command itself runs where the perform/edit switch lives.
     var newScriptFromClipboard: () -> Void
     var importFromWeb: () -> Void
+    /// Rehearsal. Both are app-level because the plan belongs to the app —
+    /// it outlives the window, so a run survives being closed and reopened.
+    var togglePractice: () -> Void
+    var revealPractice: () -> Void
+    /// The two script tools: offline diagnosis (instant, no key, no network)
+    /// and the model rewrite (needs the user's own key). Both write into the
+    /// app, so both are app-level.
+    var analyseScript: () -> Void
+    var scriptTools: () -> Void
 }
 
 /// Everything a command needs from the view tree. `mode` is a binding so
@@ -40,6 +57,10 @@ struct CommandContext {
     /// The parsed script. Commands read pages and cues from here rather than
     /// re-walking tokens.
     var index: ScriptIndex
+    /// The rehearsal recorder. Optional so the dispatcher's context can be
+    /// built (and the tests reasoned about) without one — but the toggle is
+    /// a window command, and the window is exactly where the recorder lives.
+    var recorder: RunRecorder?
 }
 
 /// One dispatcher for the whole app: the menu rows and the key monitor both
@@ -129,8 +150,19 @@ final class HotkeyCenter {
         case .exportScript: app?.exportScript(); return
         case .newScriptFromClipboard: app?.newScriptFromClipboard(); return
         case .importFromWeb: app?.importFromWeb(); return
+        case .togglePractice: app?.togglePractice(); return
+        case .revealPractice: app?.revealPractice(); return
+        case .analyseScript: app?.analyseScript(); return
+        case .scriptTools: app?.scriptTools(); return
         case .insertCue: app?.showCuePalette(); return
         default: break
+        }
+        // "Never lose your place" is dispatched before the context is demanded:
+        // the window is closed exactly when it is needed — mid-talk, presenting
+        // over another app — and `context` is nil in that case.
+        if action == .resumeReading {
+            app?.resumeReading()
+            return
         }
         guard let context else { return }
         let engine = context.engine
@@ -159,6 +191,7 @@ final class HotkeyCenter {
             Self.jump(seconds: -10, engine: engine)
         case .restart:
             engine.restart()
+        case .resumeReading: return   // handled above, before the engine is touched
         case .nextSlide:
             context.slides.step(1)
         case .previousSlide:
@@ -182,8 +215,11 @@ final class HotkeyCenter {
                                   index: context.index, voice: context.voice)
         case .toggleFullscreen:
             toggleFullscreen()
+        case .toggleRecording:
+            context.recorder?.toggle()
         case .insertCue, .newScript, .importScripts, .exportScript,
-             .newScriptFromClipboard, .importFromWeb:
+             .newScriptFromClipboard, .importFromWeb, .togglePractice,
+             .revealPractice, .analyseScript, .scriptTools:
             break // handled above
         }
     }

@@ -24,6 +24,23 @@ struct SidebarView: View {
     /// owner is how one press comes to drive two commands.
     var shortcuts: ShortcutMap = .default
     var onExport: (ScriptDocument) -> Void = { _ in }
+    /// Whether to ask before a delete. Read from General; a switch that says
+    /// "confirm before deleting" and is then ignored would be worse than
+    /// having no switch.
+    var confirmBeforeDeleting: Bool = true
+    /// Set while a delete is waiting to be confirmed.
+    @State private var pendingDelete: ScriptDocument?
+
+    /// Deleting a script deletes a file, so it asks — unless the user turned
+    /// the question off in General. A confirmation that can be switched off is
+    /// worth having; one that cannot is the thing people route around.
+    private func requestDelete(_ doc: ScriptDocument) {
+        guard confirmBeforeDeleting else {
+            scripts.delete(doc.id)
+            return
+        }
+        pendingDelete = doc
+    }
     @State private var search = ""
     @State private var selection: LibrarySelection = .all
     @State private var collapsed: Set<UUID> = []
@@ -199,6 +216,19 @@ struct SidebarView: View {
         }
         .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 200, idealWidth: 240, maxWidth: 300)
+        .confirmationDialog(
+            pendingDelete.map { "Delete “\($0.title)”?" } ?? "",
+            isPresented: Binding(get: { pendingDelete != nil },
+                                 set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let doc = pendingDelete { scripts.delete(doc.id) }
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("This deletes the file in ~/Documents/Cuebar/Scripts.")
+        }
         .alert(folderPromptTitle, isPresented: $showingFolderPrompt) {
             TextField("Name", text: $folderNameDraft)
             Button("Create") { commitFolderPrompt() }
@@ -399,7 +429,7 @@ struct SidebarView: View {
                         onArchive: { scripts.setArchived(!doc.isArchived, for: doc.id) },
                         onDuplicate: { scripts.duplicate(doc.id) },
                         onExport: { onExport(doc) },
-                        onDelete: { scripts.delete(doc.id) }
+                        onDelete: { requestDelete(doc) }
                     )
                     .onDrag { ScriptDrag.provider(for: doc) ?? NSItemProvider() }
                 }
@@ -850,7 +880,7 @@ struct TagChip: View {
         .foregroundStyle(CuePalette.inkMuted)
         .padding(.horizontal, 5)
         .padding(.vertical, 1.5)
-        .background(Color.white.opacity(0.07), in: Capsule())
+        .background(CuePalette.ink.opacity(0.07), in: Capsule())
     }
 }
 

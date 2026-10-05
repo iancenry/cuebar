@@ -55,5 +55,7 @@
     <string>Cuebar uses speech recognition to follow your reading position.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Cuebar uses the microphone to track your voice for scrolling.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Cuebar records video of your rehearsal so you can watch it back.</string>
 </dict>
 </plist>

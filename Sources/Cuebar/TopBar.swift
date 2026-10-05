@@ -10,6 +10,8 @@ struct TopBar: View {
     @Bindable var overlay: OverlayController
     @Bindable var voice: VoiceTracker
     let index: ScriptIndex
+    /// Rehearsal, so the floating prompter hides what the window hides.
+    var practice: PracticeController? = nil
     @Binding var mode: PerformMode
     @Environment(\.openSettings) private var openSettings
 
@@ -30,7 +32,8 @@ struct TopBar: View {
                     Text("Fullscreen").tag(CueSettings.OverlayMode.fullscreen)
                 }
                 Button(overlay.isShowing ? "Close Overlay" : "Pop Out") {
-                    overlay.toggle(engine: engine, settings: settings, index: index, voice: voice)
+                    overlay.toggle(engine: engine, settings: settings, index: index,
+                                   voice: voice, practice: practice)
                 }
                 Divider()
                 Picker("Follow mode", selection: $settings.settings.guidance) {

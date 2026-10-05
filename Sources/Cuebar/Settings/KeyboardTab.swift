@@ -10,7 +10,8 @@ struct KeyboardTab: View {
     @Bindable var globalHotkeys: GlobalHotkeys
 
     var body: some View {
-        SettingsTab {
+        SettingsPage(title: "Keyboard",
+                     subtitle: "Every command, and what it is bound to.") {
             if !hotkeys.captureHint.isEmpty {
                 SettingsCaption(text: hotkeys.captureHint)
             }

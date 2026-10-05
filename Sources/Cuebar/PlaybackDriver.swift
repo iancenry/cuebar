@@ -13,6 +13,19 @@ struct PlaybackDriver: View {
     @Bindable var voice: VoiceTracker
     let index: ScriptIndex
     @Binding var mode: PerformMode
+    /// Rehearsal, so popping out on Play rehearses in the overlay too.
+    var practice: PracticeController? = nil
+    /// Where the presenter was. Written from the tick loop, so a quit loses at
+    /// most the store's one-second coalesce window.
+    var positions: PositionStore? = nil
+    /// Where "the matcher last confirmed something" comes from. A reference so
+    /// this view is not re-created with the tick loop; nil disables the state.
+    var trackingConfirmations: VoiceTracker? = nil
+    /// The rehearsal run. This view feeds it: the ticker is the only loop
+    /// already awake, so the recorder's samples cannot disagree with the
+    /// engine position they describe. It is optional so the driver can be
+    /// built without one.
+    var recorder: RunRecorder? = nil
     var pick: (UUID) -> Void
     @State private var voiceTask: Task<Void, Never>?
     @State private var ticker: Task<Void, Never>?
@@ -89,6 +102,9 @@ struct PlaybackDriver: View {
             .onDisappear {
                 ticker?.cancel()
                 ticker = nil
+                // Same reasoning as the ticker: this view owns the loop, and
+                // it goes away with the window.
+                recorder?.stopIfRecording()
             }
             .onChange(of: settings.settings.naturalPacing) { _, pacing in
                 engine.naturalPacing = pacing
@@ -107,7 +123,7 @@ struct PlaybackDriver: View {
                 // so there's nothing to go looking for.
                 if playing, !overlay.isShowing, settings.settings.popOutOnPlay {
                     overlay.show(engine: engine, settings: settings,
-                                 index: index, voice: voice)
+                                 index: index, voice: voice, practice: practice)
                 }
                 syncVoice()
                 syncTicker()
@@ -221,6 +237,19 @@ struct PlaybackDriver: View {
         if position < tickState.lastWord { voice.abandonTranscript() }
         tickState.lastWord = position
 
+        // Practice mode's "the word you are reading is never a gap". Written
+        // here, once per tick, rather than inside the prompter's view body —
+        // a view that publishes the value it is about to read invalidates
+        // itself mid-evaluation, which is a hang, then a dead app.
+        practice?.noteCurrentWord(engine.currentWordIndex)
+        recordPlace()
+
+        // One sample of the rehearsal run. Fed from here rather than from a
+        // timer of its own: a second loop would read the same engine at a
+        // slightly different moment and could record a pause that never
+        // happened. Cheap when idle — the recorder drops it in one compare.
+        recorder?.sample(word: engine.currentWordIndex, speaking: voice.isSpeaking)
+
         fireCueTriggers()
 
         let guidance = settings.settings.guidance
@@ -279,8 +308,73 @@ struct PlaybackDriver: View {
                 || (voice.transcriptCount == 0 && voice.isSpeaking) {
                 engine.tick(delta)
             }
+            updateTrackingState(delta: delta)
         }
     }
+
+    /// The safety net, and what it deliberately is *not*.
+    ///
+    /// Research first: a teleprompter that jumps 30 paragraphs is the single
+    /// most-reported failure in this product class, and the fix that works is
+    /// the one that makes uncertainty **stop** the prompter rather than send it
+    /// off on the clock. Every competitor that recovers does it that way, and
+    /// the closest indie one puts it plainly: every uncertainty resolves to
+    /// waiting, never to scrolling away.
+    ///
+    /// What this does *not* do is show a percentage. Apple's per-segment
+    /// confidence is unverified on device — reported as often-absent by the
+    /// tools that read it, and never calibrated in anything we could find — and
+    /// the research on graded certainty is that a number does not improve
+    /// automation use, while a wrong-but-confident system is trusted *more*. A
+    /// presenter cannot act on a number mid-sentence anyway.
+    ///
+    /// So the signals are our own and they are about one thing: how long since
+    /// the matcher last confirmed a chain, while the mic is hearing speech.
+    private func updateTrackingState(delta: Double) {
+        // `naturalPacing` is the engine's *dwell* pacing and has nothing to do
+        // with voice tracking — gating on it meant the two presets that turn it
+        // off (Presentation, Interview) silently disabled the safety net. The
+        // right gate is the guidance mode itself.
+        guard mode == .perform, settings.settings.guidance == .wordTracking,
+              !voice.isMutedByUser, !engine.isHolding, !engine.isStopping,
+              let confirmations = trackingConfirmations else { return }
+        let state = trackingState
+        let spokenRecently = confirmations.recentConfirmation() != nil
+        if spokenRecently {
+            state.lostFor = 0
+            state.consecutiveConfirmed += 1
+            if state.consecutiveConfirmed >= 2 {
+                state.uncertain = false
+                overlay.showTrackingUncertain(false)
+            }
+            return
+        }
+        // Only a *prolonged* loss with speech arriving counts. A pause
+        // mid-thought is the most normal thing in the world, and treating it as
+        // a failure would make the mode unusable — which is the other thing
+        // users complain about, and the more common of the two.
+        guard voice.transcriptCount > 0 else { return }
+        state.lostFor += delta
+        guard state.lostFor > Self.trackingLossThreshold else { return }
+        guard !state.uncertain else { return }
+        state.uncertain = true
+        state.consecutiveConfirmed = 0
+        overlay.showTrackingUncertain(true)
+    }
+
+    /// The tracking state as a box, because this is written from the tick
+    /// closure where `self` is captured immutably — the same reason the tick
+    /// accumulators are not `@State`.
+    private final class TrackingState: @unchecked Sendable {
+        var lostFor: Double = 0
+        var consecutiveConfirmed = 0
+        var uncertain = false
+    }
+    private let trackingState = TrackingState()
+
+    /// Long enough that a pause between sentences is not a failure, short
+    /// enough that the presenter notices before they read past it.
+    private static let trackingLossThreshold: Double = 1.6
 
     /// Hand the crossed slide cues to the sync layer, once, in order.
     ///
@@ -359,19 +453,58 @@ struct PlaybackDriver: View {
         }
     }
 
+    /// Note where the prompter is, and where voice last confirmed the reader
+    /// was.
+    ///
+    /// Both are cheap and both are debounced by the store, so they can run on
+    /// every tick. The point of this is an *unexpected* quit — a crash, a
+    /// force-quit, a flat battery — so it has to be on the tick and not on a
+    /// deliberate save.
+    private func recordPlace() {
+        guard let positions, let id = scripts.selectedID,
+              let word = engine.currentWordIndex else { return }
+        let total = index.wordTokenIndices.count
+        if let confirmed = voice.recentConfirmation() {
+            positions.recordConfirmedSpeech(wordIndex: confirmed, for: id, totalWords: total)
+        } else {
+            positions.record(ReadingPosition(wordIndex: word, totalWords: total), for: id)
+        }
+    }
+
     private func advance(_ progress: Double) {
         guard progress >= 1, !engine.isPlaying else { return }
+        // The run is over. Rehearsal escalates on its own from here — it used
+        // to be a documented behaviour with no call site anywhere, so the pass
+        // only moved when the presenter clicked the chevron.
+        practice?.advanceAfterRun()
         // This fires on every progress change (12-100 Hz), so the cheap
         // guard comes first and the script scan only on the final branch.
+        // `liveScripts`, not `scripts`: the archive is not a queue. Walking
+        // the full list auto-selected a talk the presenter had deliberately
+        // put away — and because the list is ordered by most-recently-edited,
+        // it was whichever archived script had been touched last.
         guard settings.settings.autoNextScript,
               let current = scripts.selectedID,
-              let idx = scripts.scripts.firstIndex(where: { $0.id == current }),
-              idx + 1 < scripts.scripts.count else {
+              let idx = scripts.liveScripts.firstIndex(where: { $0.id == current }),
+              idx + 1 < scripts.liveScripts.count else {
             overlay.hide()
             return
         }
-        pick(scripts.scripts[idx + 1].id)
-        engine.play()
+        let next = scripts.liveScripts[idx + 1].id
+        // Do not touch the next talk's saved position: loading it here would
+        // record word zero and erase where it was being read.
+        positions?.forget(next)
+        pick(next)
+        // Play *after* the load, not before. `pick` publishes `selectedID`,
+        // and the load that follows arrives in the next SwiftUI update pass
+        // with `preservingPosition: false`, which stops playback. Calling
+        // `play()` here was aimed at the *previous* script's words and was
+        // undone a frame later, so "next script" meant "next script, loaded
+        // and silent".
+        Task { @MainActor in
+            guard scripts.selectedID == next else { return }
+            engine.play()
+        }
     }
 
     /// Cue arrival. Timed cues hold playback for their duration; bare

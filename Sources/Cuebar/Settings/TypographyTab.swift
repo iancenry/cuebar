@@ -5,7 +5,8 @@ struct TypographyTab: View {
     @Bindable var settings: SettingsStore
 
     var body: some View {
-        SettingsTab {
+        SettingsPage(title: "Typography",
+                     subtitle: "The words themselves: face, size, spacing, colour.") {
             SettingsSection(title: "Preview") {
                 ReadingPreview(settings: settings.settings)
                 SettingsCaption(text: "Live preview — reflects every tab.")

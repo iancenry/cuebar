@@ -50,6 +50,10 @@ final class VoiceTracker {
     private(set) var lastWordDate: Date?
     /// Last tail handed to the matcher, so a re-delivered one is skipped.
     private var lastMatchedTail: String = ""
+    /// The last word voice matching confirmed, and when. Kept beside the tail
+    /// so a script change can reset both.
+    private var lastConfirmedWord: Int?
+    private var lastConfirmedDate: Date?
     /// Recent input levels (~6 s at the 8 Hz ticker) for the waveform.
     /// Appends flat zeros when idle so the wave settles instead of freezing.
     private(set) var levelHistory: [Double] = Array(repeating: 0, count: 48)
@@ -276,8 +280,30 @@ extension VoiceTracker: TranscriptionEvents {
             // highlight that far in one frame is what made it look like it
             // was jumping around instead of following the voice.
             engine.confirmReadThroughWord(end, glide: true)
+            lastConfirmedWord = end
+            lastConfirmedDate = Date()
         }
     }
+
+    /// The last word voice matching confirmed the reader reached, if it was
+    /// recent. This is the honest answer to "where had I actually got to",
+    /// and it is what "never lose your place" restores *beside* the prompter's
+    /// own position — after a mis-heard jump those two are different, and the
+    /// gap between them is the thing worth showing.
+    func recentConfirmation(within seconds: TimeInterval = 3) -> Int? {
+        guard let at = lastConfirmedDate,
+              Date().timeIntervalSince(at) < seconds else { return nil }
+        return lastConfirmedWord
+    }
+
+    /// The confirmed word even when it is old — for "how far had I actually
+    /// got", which stays meaningful after the highlight has been frozen.
+    var lastConfirmation: (word: Int, at: Date)? {
+        guard let lastConfirmedWord, let lastConfirmedDate else { return nil }
+        return (lastConfirmedWord, lastConfirmedDate)
+    }
+
+
 
     func failed(_ message: String) {
         guard state == .listening || state == .requesting else { return }

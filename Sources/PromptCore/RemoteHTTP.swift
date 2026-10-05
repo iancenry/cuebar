@@ -11,6 +11,11 @@ import Foundation
 public enum RemoteHTTP {
     /// A parsed request, or nil when it isn't one we can act on.
     public struct Request: Equatable, Sendable {
+        /// The largest request body the phone remote will accept. Every
+        /// command it sends is a few hundred bytes; anything approaching this
+        /// is a mistake or an attack, and neither is worth buffering.
+        public static let maximumBodyBytes = 64 * 1024
+
         public var method: String
         public var path: String
         public var query: [String: String]
@@ -47,14 +52,28 @@ public enum RemoteHTTP {
         }
 
         var length = 0
+        var declared = false
         for line in lines.dropFirst() {
             let kv = line.split(separator: ":", maxSplits: 1)
             guard kv.count == 2 else { continue }
             if kv[0].lowercased() == "content-length",
                let value = Int(kv[1].trimmingCharacters(in: .whitespaces)) {
+                // A negative `Content-Length` reaches `Data.prefix(_:)`,
+                // which traps — and this is parsed before the token is even
+                // checked, so one malformed request from anything on the
+                // venue wifi killed the prompter mid-talk. Nonsense is
+                // nonsense, not "no body".
+                guard value >= 0, value <= Request.maximumBodyBytes else { return nil }
                 length = value
+                declared = true
             }
         }
+        // A body that declares more than the app will ever accept is refused
+        // rather than buffered: `receive` re-arms until the declared length
+        // arrives, so an unbounded `Content-Length` lets any device on the
+        // network grow this process's memory for as long as it keeps
+        // promising bytes.
+        if declared, length > Request.maximumBodyBytes { return nil }
         if rawBody.count < length {
             return Request(method: method, path: path, query: query,
                            body: Data(), needsMoreBody: true)

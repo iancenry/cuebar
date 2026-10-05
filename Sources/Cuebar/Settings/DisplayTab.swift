@@ -7,7 +7,8 @@ struct DisplayTab: View {
     @Bindable var remote: RemoteController
 
     var body: some View {
-        SettingsTab {
+        SettingsPage(title: "Display",
+                     subtitle: "Where the prompter lives while you read.") {
             SettingsSection(title: "Preview") {
                 ReadingPreview(settings: settings.settings)
                 SettingsCaption(text: "Live preview — reflects every tab.")

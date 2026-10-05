@@ -5,7 +5,8 @@ struct ReadingTab: View {
     @Bindable var settings: SettingsStore
 
     var body: some View {
-        SettingsTab {
+        SettingsPage(title: "Reading",
+                     subtitle: "Pace, what is highlighted, and what happens at a pause.") {
             SettingsSection(title: "Preview") {
                 ReadingPreview(settings: settings.settings)
             }

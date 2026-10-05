@@ -336,13 +336,14 @@ import Foundation
     }
 
     @Test func theInsertedHeadingParsesOnceItHasAName() {
-        // Straight after the button, the line is "## " with nothing after
-        // it — not a heading yet, and it parses as the plain word "##",
-        // which is the right way to fail: the presenter's sentence is
-        // untouched and the line starts resolving the moment they type.
+        // Straight after the button, the line is "## " with nothing after it.
+        // It is *neither* a heading nor a word — a line of hashes is an empty
+        // placeholder — so the words are untouched and nothing is read aloud
+        // from it. (It used to parse as the word "##", which the prompter
+        // then said.)
         let fresh = SectionInsert.plan(for: "Some words here", caret: 0)
         #expect(ScriptIndex(tokens: ScriptParser.parse(fresh.text)).sectionCount == 0)
-        #expect(ScriptIndex(tokens: ScriptParser.parse(fresh.text)).wordCount == 4)
+        #expect(ScriptIndex(tokens: ScriptParser.parse(fresh.text)).wordCount == 3)
 
         // Type the name and it is a section, and the words are untouched.
         let named = fresh.text.replacingOccurrences(of: "## ", with: "## Problem\n", options: [], range: fresh.text.startIndex..<fresh.text.index(fresh.text.startIndex, offsetBy: 3))

@@ -31,10 +31,25 @@ struct PrompterBody: View {
     /// Extra bottom room when a floating dock overlays the page (main
     /// window only) so page controls never hide underneath it.
     var bottomInset: CGFloat = 0
+    /// Practice mode. Nil in normal reading; the controller when rehearsing.
+    var practice: PracticeController? = nil
     /// Room for the floating chrome. The band has no surface of its own —
     /// the canvas runs to the window top under it — so the page is inset
     /// instead of being covered, and stays centred in what is left.
     var topInset: CGFloat = 0
+
+    /// The gaps, minus the word being read.
+    ///
+    /// A *read*. This used to call `practice.noteCurrentWord(...)` inline,
+    /// which mutates observable state while the view is being evaluated —
+    /// and since the value it writes feeds the very set being read here,
+    /// toggling practice on could invalidate the view mid-evaluation, over
+    /// and over. That is the crash on ⌥P. The current word is published by
+    /// `PlaybackDriver.tick()` instead: one writer, outside view evaluation.
+    private var hiddenWords: Set<Int> {
+        guard let practice, practice.isOn else { return [] }
+        return practice.revealing ? [] : practice.hiddenWords
+    }
     @State private var page = 0
 #if os(macOS)
     @State private var wheelMonitor: Any?
@@ -85,7 +100,8 @@ struct PrompterBody: View {
                                 } else {
                                     TokenPageView(engine: engine, index: index,
                                                   page: metrics.visiblePage,
-                                                  pageSize: pageSize, settings: settings.settings)
+                                                  pageSize: pageSize, settings: settings.settings,
+                                                  hiddenWords: hiddenWords)
                                     .padding(.horizontal, 32)
                                     .padding(.vertical, 24)
                                     .frame(maxWidth: settings.settings.readingWidth ?? .infinity,

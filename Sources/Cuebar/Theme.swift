@@ -87,41 +87,229 @@ extension CueSettings.SurfaceStyle {
 // talking. Chrome uses the same tokens so main window, overlay, and
 // settings all speak one design language.
 
+/// The colours, as data.
+///
+/// A theme is a row of hex values, which is the whole reason thirty of them is
+/// possible: adding one is a line here, not a change to the palette, the views,
+/// or the resolution rules in `ThemeChoice`.
+struct ThemeTokens {
+    var surface = ""
+    var chrome = ""
+    var sidebar = ""
+    var card = ""       // rgba — the alpha is part of the value
+    var ink = ""
+    var muted = ""
+    var inkMuted = ""
+    var stone = ""
+    var graphite = ""
+    var accent = ""
+    var onAccent = ""
+    var live = ""
+    var hairline = ""
+    var hover = ""
+    var selection = ""
+
+    /// A light wash drawn *over* `ink`. Stored as a hex so a theme stays a row
+    /// of values rather than a block of expressions.
+    var cardColor: Color { Color(hex: card) }
+    var hairlineColor: Color { Color(hex: hairline) }
+    var hoverColor: Color { Color(hex: hover) }
+    var selectionColor: Color { Color(hex: selection) }
+    var surfaceColor: Color { Color(hex: surface) }
+    var chromeColor: Color { Color(hex: chrome) }
+    var sidebarColor: Color { Color(hex: sidebar) }
+    var inkColor: Color { Color(hex: ink) }
+    var mutedColor: Color { Color(hex: muted) }
+    var inkMutedColor: Color { Color(hex: inkMuted) }
+    var stoneColor: Color { Color(hex: stone) }
+    var graphiteColor: Color { Color(hex: graphite) }
+    var accentColor: Color { Color(hex: accent) }
+    var onAccentColor: Color { Color(hex: onAccent) }
+    var liveColor: Color { Color(hex: live) }
+
+    /// Dark themes start their washes with white and light themes with black,
+    /// so `card`/`hairline`/`hover`/`selection` only need an alpha in the data.
+    static func dark(_ surface: String, _ chrome: String, _ sidebar: String,
+                     _ ink: String, _ muted: String, _ inkMuted: String,
+                     _ stone: String, _ graphite: String, _ accent: String,
+                     _ onAccent: String, _ live: String) -> ThemeTokens {
+        ThemeTokens(surface: surface, chrome: chrome, sidebar: sidebar,
+                    card: "#FFFFFF14", ink: ink, muted: muted, inkMuted: inkMuted,
+                    stone: stone, graphite: graphite, accent: accent,
+                    onAccent: onAccent, live: live,
+                    hairline: "#FFFFFF14", hover: "#FFFFFF0D", selection: "#FFFFFF16")
+    }
+
+    static func light(_ surface: String, _ chrome: String, _ sidebar: String,
+                      _ ink: String, _ muted: String, _ inkMuted: String,
+                      _ stone: String, _ graphite: String, _ accent: String,
+                      _ onAccent: String, _ live: String) -> ThemeTokens {
+        ThemeTokens(surface: surface, chrome: chrome, sidebar: sidebar,
+                    card: "#0000000A", ink: ink, muted: muted, inkMuted: inkMuted,
+                    stone: stone, graphite: graphite, accent: accent,
+                    onAccent: onAccent, live: live,
+                    hairline: "#00000014", hover: "#00000008", selection: "#00000010")
+    }
+}
+
+extension Color {
+    /// The two forms a theme file needs, parsed by `RGBAColor` — which is in
+    /// PromptCore precisely because this one function was wrong once and had
+    /// no test.
+    init(hex: String) {
+        let value = RGBAColor(hex: hex)
+        self.init(.sRGB, red: value.red, green: value.green, blue: value.blue,
+                  opacity: value.alpha)
+    }
+}
+
+/// The themes, and which layer each one is for.
+struct CueTheme: Identifiable {
+    var id: String
+    var name: String
+    var symbol: String
+    var summary: String
+    var tokens: ThemeTokens
+    /// Whether this theme is meant for the reading surface as well as the
+    /// chrome. A light chrome theme is not: it would give a white prompter.
+    var isForSurface: Bool
+
+    static let shipped: [CueTheme] = [
+        CueTheme(
+            id: ThemeCatalog.dark, name: "Dark", symbol: "circle.lefthalf.filled",
+            summary: "The one Cuebar has always shipped. Near-black, warm accent.",
+            tokens: .dark("#0F0F11", "#1B1B1E", "#16161A", "#ECECEE", "#8A8A8F",
+                          "#A8A8AF", "#B8B8BD", "#1C1C1F", "#FF8F4D",
+                          "#1A120B", "#73D98C"),
+            isForSurface: true),
+        CueTheme(
+            id: ThemeCatalog.oled, name: "OLED", symbol: "circle.fill",
+            summary: "True black, for the OLED MacBooks. Saves power, hides seams.",
+            tokens: .dark("#000000", "#0C0C0E", "#08080A", "#FFFFFF", "#8E8E93",
+                          "#AEAEB2", "#C0C0C6", "#171719", "#FF9147",
+                          "#1A120B", "#5BD98A"),
+            isForSurface: true),
+        CueTheme(
+            id: ThemeCatalog.warm, name: "Warm", symbol: "flame",
+            summary: "Sepia-toned. Gentler for a long rehearsal, and in a dark room.",
+            tokens: .dark("#14110D", "#221D17", "#1B1712", "#F4EDE2", "#9A8F7E",
+                          "#B5A794", "#C8B9A3", "#241F19", "#E9A05C",
+                          "#1B1208", "#8FCB8A"),
+            isForSurface: true),
+        CueTheme(
+            id: ThemeCatalog.light, name: "Light", symbol: "sun.max",
+            summary: "For a bright room. The prompter stays dark on purpose.",
+            tokens: .light("#F6F6F7", "#FFFFFF", "#EFEFF1", "#1B1B1E", "#6B6B70",
+                           "#83838A", "#4A4A50", "#E4E4E8", "#D2622A",
+                           "#FFFFFF", "#1F8A45"),
+            isForSurface: false),
+        CueTheme(
+            id: ThemeCatalog.highContrast, name: "High Contrast",
+            symbol: "circle.righthalf.filled",
+            summary: "Maximum contrast, no washes. A mode, not a look.",
+            tokens: .dark("#000000", "#000000", "#000000", "#FFFFFF", "#FFFFFF",
+                          "#FFFFFF", "#FFFFFF", "#000000", "#FFD400",
+                          "#000000", "#00FF66"),
+            isForSurface: true),
+    ]
+
+    static func theme(_ id: String) -> CueTheme {
+        shipped.first { $0.id == id } ?? shipped[0]
+    }
+}
+
+/// The palette, resolved.
+///
+/// `CuePalette` used to be a bag of `static let`s. It is now a bag of computed
+/// reads through one shared token set, which is why the 287 call sites needed
+/// no change at all: the name, and every colour's *meaning*, survived — only
+/// where the values come from moved.
+/// Holds the two resolved token sets.
+///
+/// A box rather than `@MainActor` statics, because `CuePalette` is read from
+/// view `body` evaluation *and* from a handful of non-isolated helpers. The
+/// invariant is one line: **every write happens on the main actor**, from
+/// `applyThemes`, which is only ever called from settings and launch. Reads are
+/// value copies of a `Sendable` struct.
+final class PaletteBox: @unchecked Sendable {
+    private static let storage = PaletteBox()
+    static var shared: PaletteBox { storage }
+
+    private let lock = NSLock()
+    private var chromeTokens = CueTheme.theme(ThemeCatalog.dark).tokens
+    private var surfaceTokens = CueTheme.theme(ThemeCatalog.dark).tokens
+
+    var chrome: ThemeTokens {
+        lock.lock(); defer { lock.unlock() }; return chromeTokens
+    }
+
+    var surface: ThemeTokens {
+        lock.lock(); defer { lock.unlock() }; return surfaceTokens
+    }
+
+    func set(chrome: ThemeTokens, surface: ThemeTokens) {
+        lock.lock(); defer { lock.unlock() }
+        chromeTokens = chrome
+        surfaceTokens = surface
+    }
+}
+
+/// Resolve both layers from the user's choices, and publish them.
+///
+/// - Parameters:
+///   - systemIsDark: the app's appearance right now, used only when the user
+///     has not chosen a chrome theme.
+///   - onChange: called after the palette moves, so a caller can refresh
+///     anything that captured a colour.
+@MainActor
+func applyThemes(chromeChoice: String?, surfaceChoice: String?,
+                 highContrast: Bool, systemIsDark: Bool) {
+    let chromeID = ThemeChoice.resolveChrome(choice: chromeChoice,
+                                            systemIsDark: systemIsDark)
+    let surfaceID = ThemeChoice.resolveSurface(choice: surfaceChoice,
+                                               chromeTheme: chromeID,
+                                               isHighContrast: highContrast)
+    let chromeTokens = CueTheme.theme(chromeID).tokens
+    // High Contrast is a mode over the reading surface, not a second palette
+    // for the whole app — the chrome keeps the user's chosen theme so the
+    // settings window does not become a high-contrast artefact.
+    let surfaceTokens: ThemeTokens = highContrast
+        ? CueTheme.theme(ThemeCatalog.highContrast).tokens
+        : CueTheme.theme(surfaceID).tokens
+    PaletteBox.shared.set(chrome: chromeTokens, surface: surfaceTokens)
+}
+
 enum CuePalette {
-    /// Near-black reading canvas — the darkest layer.
-    static let surface = Color(red: 0.059, green: 0.059, blue: 0.067)
-    /// Window furniture (top bar, transport, editor).
-    static let chrome = Color(red: 0.106, green: 0.106, blue: 0.118)
-    /// The library rail — one step under the chrome.
-    static let sidebar = Color(red: 0.086, green: 0.086, blue: 0.094)
-    /// Raised card fill on top of any surface.
-    static let card = Color.white.opacity(0.06)
-    /// Primary text.
-    static let ink = Color(red: 0.925, green: 0.925, blue: 0.933)
-    /// Secondary text.
-    static let muted = Color(red: 0.541, green: 0.541, blue: 0.561)
-    /// Secondary ink *over the painted rail*. A step brighter than `muted`:
-    /// the backdrop lifts the floor under the quiet text — counts,
-    /// subtitles, the empty-state line — and those are the elements that
-    /// were already closest to their contrast limit.
-    static let inkMuted = Color(red: 0.66, green: 0.66, blue: 0.685)
-    /// Alternate reading ink.
-    static let stone = Color(red: 0.72, green: 0.72, blue: 0.74)
-    /// Slate reading surface option.
-    static let graphite = Color(red: 0.11, green: 0.11, blue: 0.12)
-    /// Sunset-orange accent: progress, toggles, primary actions, current word.
-    /// More saturated than a peach so it doesn't read as tan on graphite.
-    static let peach = Color(red: 1.0, green: 0.561, blue: 0.302)
-    /// Deep brown for text on the peach highlight pill.
-    static let onHighlight = Color(red: 0.10, green: 0.07, blue: 0.04)
-    /// Live green dot for the Reading status.
-    static let live = Color(red: 0.45, green: 0.85, blue: 0.55)
-    /// Hairline separating chrome regions.
-    static let hairline = Color.white.opacity(0.08)
-    /// Hover wash for rows and quiet buttons.
-    static let hover = Color.white.opacity(0.05)
-    /// Selected/active wash — neutral so it never tints brown.
-    static let selection = Color.white.opacity(0.085)
+    // MARK: - Chrome — sidebar, settings, editor, transport, sheets
+    static var surface: Color { PaletteBox.shared.chrome.surfaceColor }
+    static var chrome: Color { PaletteBox.shared.chrome.chromeColor }
+    static var sidebar: Color { PaletteBox.shared.chrome.sidebarColor }
+    static var card: Color { PaletteBox.shared.chrome.cardColor }
+    static var ink: Color { PaletteBox.shared.chrome.inkColor }
+    static var muted: Color { PaletteBox.shared.chrome.mutedColor }
+    static var inkMuted: Color { PaletteBox.shared.chrome.inkMutedColor }
+    static var stone: Color { PaletteBox.shared.chrome.stoneColor }
+    static var graphite: Color { PaletteBox.shared.chrome.graphiteColor }
+    static var peach: Color { PaletteBox.shared.chrome.accentColor }
+    static var onHighlight: Color { PaletteBox.shared.chrome.onAccentColor }
+    static var live: Color { PaletteBox.shared.chrome.liveColor }
+    static var hairline: Color { PaletteBox.shared.chrome.hairlineColor }
+    static var hover: Color { PaletteBox.shared.chrome.hoverColor }
+    static var selection: Color { PaletteBox.shared.chrome.selectionColor }
+
+    // MARK: - Reading surface — the prompter and its preview
+    /// The canvas the script is read on. Separate from `chrome` so a light
+    /// chrome theme cannot hand somebody a white prompter at three metres.
+    static var readingSurface: Color { PaletteBox.shared.surface.surfaceColor }
+    static var readingInk: Color { PaletteBox.shared.surface.inkColor }
+    static var readingStone: Color { PaletteBox.shared.surface.stoneColor }
+    static var readingGraphite: Color { PaletteBox.shared.surface.graphiteColor }
+    static var readingAccent: Color { PaletteBox.shared.surface.accentColor }
+    static var readingOnAccent: Color { PaletteBox.shared.surface.onAccentColor }
+    /// The accent used *on the reading surface*. Named apart from `peach` so a
+    /// change of chrome theme cannot repaint a cue the presenter has already
+    /// chosen.
+    static var cueAccent: Color { PaletteBox.shared.surface.accentColor }
 
     static let cardRadius: CGFloat = 16
     /// The band the floating chrome floats in: a 24pt control with 4pt of
@@ -224,5 +412,148 @@ enum FontLoader {
 #else
         return false
 #endif
+    }
+}
+
+extension CueSettings.FontFamily {
+    /// A CoreText font for the same face, or nil when there isn't one to ask
+    /// about.
+    ///
+    /// The mask slot needs a real measurement and must not be built by
+    /// bridging a SwiftUI `Font` to AppKit: `Font.custom("OpenDyslexic-Bold")`
+    /// has no `NSFont` to bridge to, and the bridge threw inside the window
+    /// layout pass — an Objective-C exception on the display cycle, which is an
+    /// unconditional abort. CoreText takes a PostScript name, so this path has
+    /// no bridging in it at all.
+    /// CoreText name for a face at a weight, where there is one.
+    func coreTextName(weight: Font.Weight) -> String? {
+        guard self == .dyslexia, FontLoader.dyslexiaAvailable else { return nil }
+        return (weight == .bold || weight == .heavy || weight == .semibold)
+            ? "OpenDyslexic-Bold" : "OpenDyslexic-Regular"
+    }
+}
+
+/// Width of a masked word, measured rather than guessed.
+///
+/// The arithmetic this replaces (`0.5 em` per character) was systematically
+/// wrong in both directions: about 21% *wide* on ordinary English prose, and
+/// about 40% *narrow* on capitals, CJK and emoji — which is why the page
+/// re-wrapped the moment a word was unmasked, in a mode whose entire promise
+/// is that the page does not move. Nothing ever clipped; it reflowed.
+///
+/// Over-estimating is free (a slot slightly too wide), so the measurement is
+/// padded a little and rounded up. Memoised on everything that affects it,
+/// because this is asked once per visible word per render.
+@MainActor
+enum MaskedWordWidth {
+    /// Measured on the main actor, where the layout that asks is running, and
+    /// never from anywhere else — so a plain dictionary is the right amount of
+    /// machinery.
+    private static var cache: [Key: CGFloat] = [:]
+    private struct Key: Hashable {
+        let text: String
+        let name: String?
+        let size: Double
+        let bold: Bool
+        let tracking: CGFloat
+    }
+    private static let limit = 4096
+
+    static func width(of text: String, family: CueSettings.FontFamily, size: Double,
+                      bold: Bool, tracking: CGFloat) -> CGFloat {
+        let key = Key(text: text, name: family.coreTextName(weight: bold ? .bold : .regular),
+                      size: size, bold: bold, tracking: tracking)
+        if let cached = cache[key] { return cached }
+        let measured = measure(key: key)
+        if cache.count > limit { cache.removeAll(keepingCapacity: true) }
+        cache[key] = measured
+        return measured
+    }
+
+    private static func measure(key: Key) -> CGFloat {
+        let characters = max(1, key.text.count)
+        // The floor: a one- or two-letter gap is wider than the word it
+        // stands in for, which reads as a deliberate redaction bar.
+        var width = max(28, fontFor(key).map { typographicWidth(of: key.text, font: $0) }
+                        ?? CGFloat(characters) * CGFloat(key.size) * 0.5)
+        width += key.tracking * CGFloat(characters)
+        // Over-estimate rather than clip.
+        return ceil(width) + 2
+    }
+
+    private static func fontFor(_ key: Key) -> CTFont? {
+        if let name = key.name {
+            return CTFontCreateWithName(name as CFString, CGFloat(key.size), nil)
+        }
+        // The system faces: a monospaced design changes the answer enough to
+        // be worth naming.
+        if key.name == nil {
+            let base: String = CTFontCopyPostScriptName(
+                CTFontCreateUIFontForLanguage(.system, CGFloat(key.size), nil) ?? CTFontCreateWithName("Helvetica" as CFString, CGFloat(key.size), nil)) as String
+            return CTFontCreateWithName(base as CFString, CGFloat(key.size), nil)
+        }
+        return nil
+    }
+
+    private static func typographicWidth(of text: String, font: CTFont) -> CGFloat {
+        let attributed = NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+        ])
+        let line = CTLineCreateWithAttributedString(attributed)
+        return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+    }
+}
+
+/// Applies the chosen themes, and keeps them applied.
+///
+/// One owner for the whole app, on both windows. `PaletteBox` is global, so if
+/// the main window and the settings window each resolved themes on their own
+/// they would disagree for as long as the second one stayed open — a settings
+/// window showing a different palette from the window it was opened from.
+///
+/// Applied at the *scene* roots rather than inside a settings page: a theme is
+/// not a setting you can see, it is the thing every other setting is drawn with.
+struct CuebarTheming: ViewModifier {
+    @Bindable var settings: SettingsStore
+    /// The system's appearance, which is only consulted when the user has not
+    /// chosen a chrome theme. Read from the environment rather than
+    /// `NSApp.effectiveAppearance` so that the app following the system is a
+    /// *rendering* decision, not a poll.
+    @Environment(\.colorScheme) private var systemScheme
+
+    func body(content: Content) -> some View {
+        content
+            .preferredColorScheme(chromeScheme)
+            .onAppear { refresh() }
+            .onChange(of: settings.settings.theme) { _, _ in refresh() }
+            .onChange(of: settings.settings.surfaceTheme) { _, _ in refresh() }
+            .onChange(of: settings.settings.highContrast) { _, _ in refresh() }
+            .onChange(of: systemScheme) { _, _ in refresh() }
+    }
+
+    /// The window's own appearance, or `nil` to follow the system.
+    ///
+    /// `nil` matters: forcing `.dark` on a system in Light Mode makes every
+    /// control wrong, and forcing a scheme when the user asked to follow the
+    /// system is the app overriding them with a preference they never set.
+    private var chromeScheme: ColorScheme? {
+        let choice = settings.settings.theme
+        guard !choice.isEmpty else { return nil }
+        let resolved = ThemeChoice.resolveChrome(choice: choice,
+                                                 systemIsDark: systemScheme == .dark)
+        return ThemeCatalog.isLight(resolved) ? .light : .dark
+    }
+
+    private func refresh() {
+        applyThemes(chromeChoice: settings.settings.theme,
+                    surfaceChoice: settings.settings.surfaceTheme,
+                    highContrast: settings.settings.highContrast,
+                    systemIsDark: systemScheme == .dark)
+    }
+}
+
+extension View {
+    func cuebarTheming(_ settings: SettingsStore) -> some View {
+        modifier(CuebarTheming(settings: settings))
     }
 }

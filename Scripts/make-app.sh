@@ -95,6 +95,11 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
     <string>Cuebar uses speech recognition to follow your reading position.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Cuebar uses the microphone to track your voice for scrolling.</string>
+    <!-- Rehearsal capture. Optional: a run with the camera refused still
+         reports pace and pauses, because the report is telemetry and the
+         clip is the souvenir. -->
+    <key>NSCameraUsageDescription</key>
+    <string>Cuebar records video of your rehearsal so you can watch it back.</string>
     <!-- The phone remote. macOS 15 gates local-network *advertising*
          behind this key, and without it the listener never becomes
          ready, so the address in Settings would simply never appear.

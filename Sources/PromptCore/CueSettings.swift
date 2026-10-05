@@ -155,6 +155,19 @@ public struct CueSettings: Codable, Equatable, Sendable {
     /// be the one who asks for it. The slide position, the badges and the
     /// phone's stepper all work with this off.
     public var deckApp: DeckApp = .none
+    /// The chrome theme's id, or `""` to follow the system appearance.
+    ///
+    /// Two separate fields because chrome and the reading surface have
+    /// different requirements — see `ThemeChoice`. Both are ids rather than
+    /// colours, so a theme that ships later is a new value rather than a
+    /// migration.
+    public var theme: String = ThemeChoice.followSystem
+    /// The reading surface's theme id, or `""` to follow the chrome theme
+    /// (falling back to dark when the chrome theme is light).
+    public var surfaceTheme: String = ""
+    /// High Contrast is a mode, not a preference: it overrides the reading
+    /// surface whatever the two themes above say.
+    public var highContrast: Bool = false
     public var autoNextScript: Bool = false
     public var pageSize: Int = 300
     public var fixedDisplayIndex: Int = 0
@@ -189,6 +202,29 @@ public struct CueSettings: Codable, Equatable, Sendable {
     public var releaseFollowOnScroll: Bool = true
     public var highlightCurrent: Bool = true
     public var highlightStyle: HighlightStyle = .pill
+    /// Script Tools: provider, endpoint, model. The *key* is not here — it
+    /// lives in the login keychain, because this file is a plain JSON blob in
+    /// Application Support and a key in it is a key that has to be rotated
+    /// every time the user copies their preferences to another Mac.
+    public var ai: AISettings = .default
+    /// The presenter's own presets, after the four that ship. Stored with the
+    /// settings rather than in a separate file so one save covers them.
+    public var presets: [CuePreset] = []
+
+    // MARK: - General
+    /// Open Cuebar when you log in. Registered with `SMAppService`, which is
+    /// why it lives in the app's preferences rather than the app bundle.
+    public var launchAtLogin: Bool = false
+    /// Ask before a script is deleted. Deleting is now a file deletion, and a
+    /// file can go to the Trash — but a talk lost without a word is still a talk
+    /// lost.
+    public var confirmBeforeDeleting: Bool = true
+    /// Reopen a script where it was being read. Off means it always opens at
+    /// the top, which is what somebody rehearsing something else wants.
+    public var restoreLastPosition: Bool = true
+    /// Where a new script lands. Empty means "beside whatever is open", which
+    /// is the old behaviour and still the default.
+    public var defaultFolderID: UUID?
     /// User-remappable command keys. Sparse: absent actions ride their default.
     public var shortcuts: ShortcutMap = .default
     /// Let Cuebar's shortcuts work while another app is in front, but only
@@ -306,6 +342,35 @@ public struct CueSettings: Codable, Equatable, Sendable {
         hidePunctuation = decode(.hidePunctuation, default: defaults.hidePunctuation)
         showProgress = decode(.showProgress, default: defaults.showProgress)
         showCenterLine = decode(.showCenterLine, default: defaults.showCenterLine)
+        // These three were declared, encoded and then never read, so every
+        // launch quietly reset them: the phone remote stopped advertising, the
+        // deck app went back to "none", and the AI provider, endpoint, model
+        // and budget the user had typed were replaced by the defaults — while
+        // the keychain kept their key, so every request then failed with a
+        // provider error naming the wrong service. A property with a default
+        // that this function forgets is a setting that only exists until the
+        // app quits.
+        advertiseRemote = decode(.advertiseRemote, default: defaults.advertiseRemote)
+        deckApp = decode(.deckApp, default: defaults.deckApp)
+        theme = decode(.theme, default: defaults.theme)
+        surfaceTheme = decode(.surfaceTheme, default: defaults.surfaceTheme)
+        highContrast = decode(.highContrast, default: defaults.highContrast)
+        ai = decode(.ai, default: defaults.ai)
+        // Added to the tolerant decode list the day it was written, because a
+        // stored property this function forgets is a setting that exists only
+        // until the app quits — which is exactly what happened to `ai`.
+        presets = decode(.presets, default: defaults.presets)
+        launchAtLogin = decode(.launchAtLogin, default: defaults.launchAtLogin)
+        confirmBeforeDeleting = decode(.confirmBeforeDeleting,
+                                       default: defaults.confirmBeforeDeleting)
+        restoreLastPosition = decode(.restoreLastPosition,
+                                    default: defaults.restoreLastPosition)
+        defaultFolderID = decode(.defaultFolderID, default: defaults.defaultFolderID)
+        // Clamped on the way in as well as on the way through the Stepper: the
+        // number goes straight into the words of a prompt, so a hand-edited
+        // preferences file could ask a model to "cut the script to about 50
+        // words (-5 minutes at 140 words per minute)".
+        ai.minutes = min(240, max(1, ai.minutes))
     }
 }
 

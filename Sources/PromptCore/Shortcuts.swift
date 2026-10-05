@@ -16,12 +16,14 @@ public enum KeyCode {
     public static let w: UInt16 = 13
     public static let r: UInt16 = 15
     public static let o: UInt16 = 31
+    public static let i: UInt16 = 34
     public static let j: UInt16 = 38
     public static let k: UInt16 = 40
     public static let n: UInt16 = 45
     public static let m: UInt16 = 46
     public static let u: UInt16 = 32
     public static let v: UInt16 = 9
+    public static let p: UInt16 = 35
     public static let rightBracket: UInt16 = 30
     public static let leftBracket: UInt16 = 33
     public static let enter: UInt16 = 36
@@ -115,7 +117,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     case jumpForward, jumpBack
     case restart
     case nextCue, previousCue
-    case nextSlide, previousSlide
+    case nextSlide, previousSlide, resumeReading
     case toggleFollow
     case toggleMicrophone
     case toggleOverlay
@@ -123,6 +125,9 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     case insertCue
     case newScript, importScripts, exportScript
     case newScriptFromClipboard, importFromWeb
+    case togglePractice, revealPractice
+    case toggleRecording
+    case analyseScript, scriptTools
 
     public enum Group: String, CaseIterable, Sendable {
         case playback, stage, script
@@ -132,12 +137,18 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         switch self {
         case .playPause, .speedUp, .speedDown, .fineSpeedUp, .fineSpeedDown,
              .jumpForward, .jumpBack, .restart, .nextCue, .previousCue,
-             .nextSlide, .previousSlide:
+             .nextSlide, .previousSlide, .toggleRecording:
             return .playback
         case .toggleFollow, .toggleMicrophone, .toggleOverlay, .toggleFullscreen:
             return .stage
+        case .resumeReading:
+            // `.script`, not `.playback`: only app-level chords reach the
+            // dispatcher when the window is closed, and the window is closed
+            // exactly when the presenter wants their place back.
+            return .script
         case .insertCue, .newScript, .importScripts, .exportScript,
-             .newScriptFromClipboard, .importFromWeb:
+             .newScriptFromClipboard, .importFromWeb, .togglePractice,
+             .revealPractice, .analyseScript, .scriptTools:
             return .script
         }
     }
@@ -154,6 +165,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .restart: return "Restart"
         case .nextCue: return "Next Cue"
         case .previousCue: return "Previous Cue"
+        case .resumeReading: return "Back to My Place"
         case .nextSlide: return "Next Slide"
         case .previousSlide: return "Previous Slide"
         case .toggleFollow: return "Toggle Follow"
@@ -166,6 +178,11 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .exportScript: return "Export Script…"
         case .newScriptFromClipboard: return "New Script from Clipboard"
         case .importFromWeb: return "Import Web Page…"
+        case .togglePractice: return "Practice Mode"
+        case .revealPractice: return "Reveal Hidden Words"
+        case .toggleRecording: return "Record Rehearsal"
+        case .analyseScript: return "Pacing Notes"
+        case .scriptTools: return "Script Tools…"
         }
     }
 
@@ -174,6 +191,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .playPause: return "Start or stop the prompter."
         case .speedUp, .speedDown: return "Reading speed in 10 WPM steps."
         case .fineSpeedUp, .fineSpeedDown: return "Reading speed in 1 WPM steps."
+        case .resumeReading:
+            return "Jump back to where this script was being read."
         case .jumpForward, .jumpBack: return "Skip about ten seconds of script."
         case .restart: return "Back to the first word, playing."
         case .nextCue, .previousCue: return "Jump to the word after the next or previous cue."
@@ -192,11 +211,22 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
             return "Turn what you just copied into a script, ready to present."
         case .importFromWeb:
             return "Fetch a web page and turn it into a script."
+        case .togglePractice:
+            return "Hide parts of the script and rehearse filling them in."
+        case .revealPractice:
+            return "Show the words practice mode is hiding, without leaving it."
+        case .toggleRecording:
+            return "Time the run and report pace, pauses and sections reached."
+        case .analyseScript:
+            return "Find the long sentences, hard words and breathless runs."
+        case .scriptTools:
+            return "Rewrite the script for the ear, with a key you supply."
         }
     }
 
     /// Commands that don't need an open window (script files, the cue
     /// palette) — they keep working when the main window is closed.
+    ///
     public var isAppLevel: Bool { group == .script }
 
     /// Commands that still answer while the editor has focus.
@@ -262,6 +292,17 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         // "paste *into a new script*" is a different gesture from "paste".
         case .newScriptFromClipboard: return KeyChord(keyCode: KeyCode.v, modifiers: [.command, .shift])
         case .importFromWeb: return KeyChord(keyCode: KeyCode.u, modifiers: [.command, .shift])
+        // ⌥P, with the reveal on ⌥⇧P: rehearsal is driven from the keyboard
+        // during a run, and reaching for a mouse mid-talk is not an option.
+        case .togglePractice: return KeyChord(keyCode: KeyCode.p, modifiers: .option)
+        case .revealPractice: return KeyChord(keyCode: KeyCode.p, modifiers: [.option, .shift])
+        case .resumeReading: return KeyChord(keyCode: KeyCode.i, modifiers: [.option, .shift])
+        // ⌘⇧R, not ⌘R: Restart already owns ⌘R, and two commands on one chord
+        // means the dispatcher lets neither fire.
+        case .toggleRecording: return KeyChord(keyCode: KeyCode.r, modifiers: [.command, .shift])
+        // ⌥A for the diagnosis (offline, instant), ⌥⇧A for the model.
+        case .analyseScript: return KeyChord(keyCode: KeyCode.a, modifiers: .option)
+        case .scriptTools: return KeyChord(keyCode: KeyCode.a, modifiers: [.option, .shift])
         }
     }
 }

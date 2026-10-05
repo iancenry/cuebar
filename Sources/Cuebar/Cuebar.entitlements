@@ -17,23 +17,9 @@
     <true/>
     <key>com.apple.security.device.audio-input</key>
     <true/>
-    <key>com.apple.security.network.client</key>
-    <true/>
-</dict>
-</plist>
-
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>com.apple.security.app-sandbox</key>
-    <true/>
-    <!-- Reading a file the user dropped on the window. The open and save
-         panels have this by way of the powerbox; a drag does not, and
-         without it a dropped .docx fails to read for a reason no error
-         message mentions. -->
-    <key>com.apple.security.files.user-selected.read-write</key>
-    <true/>
-    <key>com.apple.security.device.audio-input</key>
+    <!-- Rehearsal capture. Only load-bearing once the sandbox is actually
+         on; without it a run still reports, it just cannot keep a clip. -->
+    <key>com.apple.security.device.camera</key>
     <true/>
     <key>com.apple.security.network.client</key>
     <true/>

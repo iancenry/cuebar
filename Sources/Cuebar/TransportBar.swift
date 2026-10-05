@@ -11,6 +11,30 @@ struct TransportBar: View {
     @Bindable var voice: VoiceTracker
     let index: ScriptIndex
     @Binding var follow: Bool
+    /// Rehearsal. Injected so the level control sits next to playback, which
+    /// is where a presenter looks when they are about to run the script again.
+    var practice: PracticeController? = nil
+    /// The rehearsal run. Same reasoning as practice: it belongs next to
+    /// playback, which is where the presenter looks before starting.
+    var recorder: RunRecorder? = nil
+
+    // MARK: - Height
+
+    // The dock's height, from its parts. `ContentView` passes this as the
+    // prompter's `bottomInset`, and it used to be a literal — 112 — that was
+    // right until the rehearsal row was added. Nothing said so: the last line
+    // of script simply slid underneath it.
+    //
+    // The rehearsal row: 22pt controls, 8 above and below, and the dock's own
+    // 12 underneath.
+    static let rehearsalRowHeight: CGFloat = 22 + 16 + 12
+    static let progressHeight: CGFloat = 14
+    static let controlsHeight: CGFloat = 78
+
+    /// How much of the reading surface the dock covers.
+    static func dockHeight(rehearsal: Bool) -> CGFloat {
+        progressHeight + controlsHeight + (rehearsal ? rehearsalRowHeight : 0) + 8
+    }
 
     /// Same helper the jump keys use, so a button and a chord skip the same
     /// distance at any reading speed.
@@ -44,7 +68,7 @@ struct TransportBar: View {
                         .help("Keep the viewport chasing the highlighted word. Off: browse freely while playback runs — page arrows appear, and scrolling releases Follow automatically.")
                     Button(action: {
                         overlay.toggle(engine: engine, settings: settings,
-                                      index: index, voice: voice)
+                                      index: index, voice: voice, practice: practice)
                     }) {
                         Image(systemName: "arrow.up.left.and.arrow.down.right")
                             .font(.system(size: 12, weight: .semibold))
@@ -53,7 +77,7 @@ struct TransportBar: View {
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    .background(Color.white.opacity(0.07), in: Circle())
+                    .background(CuePalette.ink.opacity(0.07), in: Circle())
                     .accessibilityLabel(overlay.isShowing ? "Close overlay" : "Pop out overlay")
                     .help(overlay.isShowing ? "Close overlay" : "Pop out overlay")
                 }
@@ -73,6 +97,25 @@ struct TransportBar: View {
             .padding(.horizontal, 14)
             .padding(.top, 8)
             .padding(.bottom, 12)
+            // Practice and Record share one row and hug their content.
+            //
+            // Two full-width rows each painted with `CuePalette.card` looked
+            // like two flat bars laid across the dock, and — the real damage —
+            // a fill on top of Liquid Glass stops reading as glass at all. The
+            // dock is the glass surface; these controls sit *on* it, so they
+            // bring their own padding and nothing else.
+            if practice != nil || recorder != nil {
+                HStack(alignment: .center, spacing: 14) {
+                    if let practice { PracticeStrip(practice: practice) }
+                    if let practice, recorder != nil {
+                        Divider().frame(height: 14)
+                    }
+                    if let recorder { RunHUD(recorder: recorder) }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+            }
         }
         .frame(maxWidth: 700)
         // A real Liquid Glass dock: text scrolls behind it and blurs,
@@ -113,7 +156,7 @@ struct SpeedControl: View {
             stepButton("plus") { adjust(by: 5) }
         }
         .padding(3)
-        .background(Color.white.opacity(0.07), in: Capsule())
+        .background(CuePalette.ink.opacity(0.07), in: Capsule())
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Reading speed")
         .accessibilityValue("\(Int(settings.settings.wordsPerMinute.rounded())) words per minute")
@@ -165,7 +208,7 @@ struct HoldBoostButton: View {
             } else {
                 label
                     .foregroundStyle(CuePalette.ink.opacity(0.8))
-                    .background(Color.white.opacity(0.07), in: Capsule())
+                    .background(CuePalette.ink.opacity(0.07), in: Capsule())
             }
         }
         .gesture(
@@ -230,7 +273,7 @@ struct SkipButton: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .background(Color.white.opacity(0.07), in: Circle())
+        .background(CuePalette.ink.opacity(0.07), in: Circle())
     }
 }
 
@@ -241,7 +284,7 @@ struct PlaybackProgress: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.12))
+                Capsule().fill(CuePalette.ink.opacity(0.12))
                 Capsule()
                     .fill(CuePalette.peach)
                     .frame(width: max(0, geo.size.width * min(1, max(0, progress))))
@@ -249,5 +292,67 @@ struct PlaybackProgress: View {
             }
         }
         .frame(height: 4)
+    }
+}
+
+
+/// Rehearsal controls, under the transport. Only there when practice mode
+/// has been asked for — a permanent row of rehearsal controls would be one
+/// more thing between a presenter and playing the script.
+struct PracticeStrip: View {
+    @Bindable var practice: PracticeController
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button {
+                practice.toggle()
+            } label: {
+                Label(practice.isOn ? "Practice on" : "Practice",
+                      systemImage: practice.isOn ? "eye.slash" : "eye")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(practice.isOn ? CuePalette.peach : CuePalette.ink.opacity(0.85))
+            }
+            .buttonStyle(.plain)
+            .help("Hide parts of the script and fill them in from memory")
+
+            if practice.isOn {
+                Divider().frame(height: 14)
+                stepper
+                Text(practice.levelDescription)
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(CuePalette.inkMuted)
+                Divider().frame(height: 14)
+                Button {
+                    practice.toggleReveal()
+                } label: {
+                    Label(practice.revealing ? "Hide" : "Reveal",
+                          systemImage: practice.revealing ? "eye.slash" : "eye")
+                        .font(.caption)
+                        .foregroundStyle(practice.revealing ? CuePalette.peach : CuePalette.ink.opacity(0.85))
+                }
+                .buttonStyle(.plain)
+                .help("Show the hidden text without leaving practice")
+            }
+        }
+        .fixedSize()
+    }
+
+    private var stepper: some View {
+        HStack(spacing: 2) {
+            Button { practice.easier() } label: { chevron("minus", "Hide less") }
+            Button { practice.harder() } label: { chevron("plus", "Hide more") }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func chevron(_ symbol: String, _ help: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(CuePalette.ink.opacity(0.8))
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
+            .help(help)
+            .accessibilityLabel(help)
     }
 }

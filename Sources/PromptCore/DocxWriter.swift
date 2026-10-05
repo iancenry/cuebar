@@ -57,16 +57,16 @@ public enum DocxWriter {
                 <w:p><w:pPr><w:outlineLvl w:val=\"\(level - 1)\"/> \
                 <w:spacing w:before="320" w:after="120"/></w:pPr> \
                 <w:r><w:rPr><w:b/><w:sz w:val="\(level == 1 ? 36 : (level == 2 ? 30 : 26))"/></w:rPr> \
-                <w:t xml:space="preserve">\(escape(text))</w:t></w:r></w:p>
+                <w:t xml:space="preserve">\(escape(ScriptParser.deemphasised(text)))</w:t></w:r></w:p>
                 """
             case .cue(let text):
                 bodyXML += """
                 <w:p><w:r><w:rPr><w:i/><w:color w:val="7A7A7A"/></w:rPr> \
-                <w:t xml:space="preserve">\(escape(text))</w:t></w:r></w:p>
+                <w:t xml:space="preserve">\(escape(ScriptParser.deemphasised(text)))</w:t></w:r></w:p>
                 """
             case .text(let text):
                 bodyXML += """
-                <w:p><w:r><w:t xml:space="preserve">\(escape(text))</w:t></w:r></w:p>
+                <w:p><w:r><w:t xml:space="preserve">\(escape(ScriptParser.deemphasised(text)))</w:t></w:r></w:p>
                 """
             }
         }

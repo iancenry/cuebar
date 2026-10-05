@@ -10,6 +10,21 @@ import PromptCore
 /// user notices: they dropped a file and nothing is open on the prompter.
 @MainActor
 enum ScriptIntake {
+    /// Show the user the folder their scripts actually live in.
+    ///
+    /// One file per script means the library is theirs, and a library you own
+    /// is only real if you can get to it. Reveals the scripts folder itself
+    /// rather than selecting a file, because the point is to see the shape of
+    /// the thing.
+    @MainActor
+    static func revealLibrary() {
+        // Created on the way: revealing a folder that does not exist selects
+        // nothing, and "nothing happened" is the least informative answer.
+        try? FileManager.default.createDirectory(
+            at: CuebarFiles.scriptsDirectory, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([CuebarFiles.scriptsDirectory])
+    }
+
     /// Handle a drop. `folder` is the drop target's folder, or nil for the
     /// window itself.
     static func handle(_ drop: ScriptDrop, scripts: ScriptStore) {

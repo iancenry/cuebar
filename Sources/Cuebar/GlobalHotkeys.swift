@@ -133,12 +133,51 @@ final class GlobalHotkeys {
 
     /// The tap runs only while the prompter is up *and* the user asked for
     /// it. Any other time, another app's keys are its own business.
+    /// Re-check the Accessibility grant while waiting for one.
+    ///
+    /// macOS has a notification for it (`kAXTrustedApplicationChanged…`) but
+    /// `AXObserver` has no usable initialiser in Swift, so there is nothing to
+    /// observe with. Without *something*, the setting sat on "Waiting for
+    /// permission" until the presenter toggled the prompter off and on — so a
+    /// user who granted the permission got a key tap that never arrived.
+    ///
+    /// A `Task`, not a `Timer`: the ticker rule in AGENTS.md is about
+    /// `assumeIsolated` from a run-loop context, and this polls a C function on
+    /// the main actor, but there is no reason to be near that trap. It only
+    /// runs while the prompter is up and waiting.
+    private func watchForPermissionGrant(while shouldRun: Bool) {
+        #if os(macOS)
+        guard shouldRun, !AXIsProcessTrusted() else {
+            permissionWatch?.cancel()
+            permissionWatch = nil
+            return
+        }
+        guard permissionWatch == nil else { return }
+        permissionWatch = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(1500))
+                guard !Task.isCancelled, let self else { return }
+                if AXIsProcessTrusted() {
+                    permissionWatch = nil
+                    sync()
+                    return
+                }
+            }
+        }
+        #endif
+    }
+
+    private var permissionWatch: Task<Void, Never>?
+
     #if !os(macOS)
     func sync() {}
     func mapDidChange() {}
     #else
     func sync() {
         let shouldRun = isEnabled && overlay?.isPresenting == true
+        #if os(macOS)
+        watchForPermissionGrant(while: shouldRun)
+        #endif
         isPresenting.withLock { $0 = shouldRun }
         guard shouldRun else {
             stop()

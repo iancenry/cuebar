@@ -27,6 +27,24 @@ struct ContentLifecycle: ViewModifier {
     let hotkeys: HotkeyCenter
     let globalHotkeys: GlobalHotkeys
     let slides: SlideSyncing
+    /// What the deck was last told, so a re-index that did not change the
+    /// slide cues does not reset it. A box rather than `@State` because this
+    /// modifier is a struct recreated on every update: `@State` would be reset
+    /// with it, and a store would be writing to the heap on the hot path.
+    private final class SlideLoadMemory: @unchecked Sendable {
+        var plan: [Int: ReadingWindow.CueTrigger] = [:]
+        var scriptID: UUID?
+    }
+    private let slideMemory = SlideLoadMemory()
+    /// Rehearsal state. The plan is rebuilt whenever the script changes —
+    /// gaps from one script over another would be nonsense.
+    let practice: PracticeController
+    /// The rehearsal recorder. It needs the script's shape (word count and
+    /// section starts) so a report started from the transport can say "of 812
+    /// words, you reached 640" without the transport knowing what a word is.
+    let recorder: RunRecorder
+    /// Saved reading positions, so a deleted script's place goes with it.
+    var positions: PositionStore? = nil
     let sharing: SharingGuard
     /// The selected script, cleared when there isn't one. Bound rather than
     /// passed so the handler can clear the draft, the index and the engine
@@ -46,7 +64,12 @@ struct ContentLifecycle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onAppear {
-                if let doc = scripts.selected { showDraft(doc) }
+                if let doc = scripts.selected {
+                    showDraft(doc)
+                    let words = ScriptParser.words(doc.body)
+                    practice.prepare(scriptID: doc.id, words: words)
+                    recorder.describe(words: words.count, sections: indexBinding.sections)
+                }
                 slides.connect(settings.settings.deckApp.driver)
                 slideLoad()
                 // The global key tap needs both collaborators, and neither
@@ -62,6 +85,11 @@ struct ContentLifecycle: ViewModifier {
                 engine.naturalPacing = settings.settings.naturalPacing
             }
             .onChange(of: scripts.selectedID) { _, new in
+                if let id = new, let found = doc(id) {
+                    let words = ScriptParser.words(found.body)
+                    practice.prepare(scriptID: id, words: words)
+                    recorder.describe(words: words.count, sections: indexBinding.sections)
+                }
                 guard let id = new, let found = doc(id) else {
                     draftBody = ""
                     tokens = []
@@ -81,6 +109,13 @@ struct ContentLifecycle: ViewModifier {
                 guard id != nil else { return }
                 presentNewScript()
                 scripts.clearImported()
+            }
+            .onChange(of: scripts.scripts.map(\.id)) { before, after in
+                // A deleted script's saved place goes with it, so a large
+                // library does not accumulate positions for talks that no
+                // longer exist.
+                let remaining = Set(after)
+                for gone in Set(before).subtracting(remaining) { positions?.forget(gone) }
             }
             .onChange(of: overlay.isShowing) { _, showing in
                 // Everything that depends on the prompter being up, in one
@@ -107,15 +142,34 @@ struct ContentLifecycle: ViewModifier {
                 if overlay.isShowing { armRemote() }
             }
             .onChange(of: indexBinding) { _, new in
+                // The report's denominator and its section list, from the
+                // one parse everything else reads. A run that started before
+                // the script was re-indexed would otherwise report against
+                // whatever was loaded when it began.
+                recorder.describe(words: indexBinding.wordTokenIndices.count,
+                                  sections: new.sections)
                 // One index drives the open panel: pages, cues and the empty
                 // check all come from it, so a re-render never re-parses.
                 if overlay.isShowing { overlay.update(index: new) }
-                slideLoad()
+                // Only reload the deck when the *slide cues* changed.
+                // Reloading builds a fresh `SlidePosition`, which starts at
+                // slide 1 and clears the crossed history — so staging a cue
+                // with ⌘K, or committing any edit, rewound the deck mid-talk and
+                // the next bare `[slide]` then jumped the presenter's actual
+                // deck backwards. Comparing the script id as well as the plan
+                // matters: two different talks can have identical cue plans,
+                // and switching scripts must still start the new deck at 1.
+                let triggers: [Int: ReadingWindow.CueTrigger] = new.cuePlan.triggers
+                let planChanged: Bool = triggers != slideMemory.plan
+                    || scripts.selectedID != slideMemory.scriptID
+                if planChanged {
+                    slideLoad()
+                }
             }
             .onChange(of: settings.settings.overlayMode) { _, _ in
                 if overlay.isShowing {
                     overlay.show(engine: engine, settings: settings,
-                                 index: indexBinding, voice: voice)
+                                 index: indexBinding, voice: voice, practice: practice)
                 }
             }
             .onChange(of: settings.settings.hideFromShare) { _, hide in
@@ -134,6 +188,8 @@ struct ContentLifecycle: ViewModifier {
     /// Wired through the shared sync so the driver and the stepper can't
     /// disagree about where the deck is.
     private func slideLoad() {
+        slideMemory.plan = indexBinding.cuePlan.triggers
+        slideMemory.scriptID = scripts.selectedID
         slides.load(indexBinding.cuePlan)
     }
 }

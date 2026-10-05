@@ -27,6 +27,11 @@ struct ContentView: View {
     /// it and the dispatcher/phone step it, so the deck and the prompter
     /// can't each keep their own count.
     let slideSync: SlideSyncing
+    /// Rehearsal state: which words are gaps right now.
+    @Bindable var practice: PracticeController
+    /// The rehearsal run. App-lifetime, fed by the tick loop in the
+    /// background — so a run keeps its samples with the window closed.
+    @Bindable var recorder: RunRecorder
     @State private var mode: PerformMode = .perform
     /// Follow is not state here: it belongs to the app-lifetime
     /// `OverlayController`, and this is just the view's handle on it. See
@@ -54,7 +59,12 @@ struct ContentView: View {
             PrompterBody(engine: engine, index: index,
                          settings: settings, voice: voice, follow: follow,
                          showsFooter: false, showsPageControls: true,
-                         bottomInset: 112, topInset: CuePalette.chromeRowHeight,
+                         // Computed from the dock's parts: it gained a
+                         // rehearsal row, and a remembered constant is how
+                         // the last line of script ends up underneath it.
+                         bottomInset: TransportBar.dockHeight(rehearsal: true),
+                         practice: practice,
+                         topInset: CuePalette.chromeRowHeight,
                          showsHeader: false)
                 .overlay(alignment: .bottom) { transport }
         } else {
@@ -80,21 +90,22 @@ struct ContentView: View {
     /// no width clamp.
     private var transport: some View {
         TransportBar(engine: engine, settings: settings, overlay: overlay,
-                     voice: voice, index: index, follow: follow)
+                     voice: voice, index: index, follow: follow, practice: practice,
+                     recorder: recorder)
             .padding(.horizontal, 16)
             .padding(.bottom, 14)
             .offset(x: windowState.isFullscreen ? -sidebarWidth / 2 : 0)
     }
 
     var body: some View {
-        let follow = follow
         HSplitView {
             SidebarView(scripts: scripts, index: index, engine: engine,
                         wordsPerSecond: engine.wordsPerSecond,
                         onPick: pick, onNew: {
-                            pick(scripts.add().id)
+                            pick(scripts.add(folder: settings.settings.defaultFolderID).id)
                         },
-                        onExport: { ScriptIO.export($0) })
+                        onExport: { ScriptIO.export($0) },
+                        confirmBeforeDeleting: settings.settings.confirmBeforeDeleting)
                 .background(SidebarBackdrop())
                 .background {
                     GeometryReader { _ in
@@ -117,7 +128,7 @@ struct ContentView: View {
                 // the two are one surface.
                 TopBar(settings: settings, engine: engine,
                        overlay: overlay, voice: voice, index: index,
-                       mode: $mode)
+                       practice: practice, mode: $mode)
             }
             .ignoresSafeArea(.container, edges: .top)
             .background(CuePalette.chrome)
@@ -138,7 +149,9 @@ struct ContentView: View {
         .background {
             PlaybackDriver(engine: engine, scripts: scripts, settings: settings,
                            overlay: overlay, voice: voice, index: index,
-                           mode: $mode, pick: pick, slideSync: slideSync)
+                           mode: $mode, practice: practice, positions: app.positions,
+                           trackingConfirmations: voice,
+                           recorder: recorder, pick: pick, slideSync: slideSync)
         }
         .background {
             BoostKeys(engine: engine, settings: settings, mode: $mode)
@@ -148,13 +161,16 @@ struct ContentView: View {
                          shortcuts: settings.settings.shortcuts, index: index,
                          context: CommandContext(engine: engine, voice: voice,
                                                  overlay: overlay, slides: slideSync,
-                                                 mode: $mode, index: index),
+                                                 mode: $mode, index: index,
+                                                 recorder: recorder),
                          mode: $mode)
         }
         .modifier(ContentLifecycle(scripts: scripts, index: index, settings: settings,
                                    engine: engine, voice: voice, overlay: overlay,
                                    remote: remote, hotkeys: hotkeys,
                                    globalHotkeys: globalHotkeys, slides: slideSync,
+                                   practice: practice, recorder: recorder,
+                                   positions: app.positions,
                                    sharing: sharing,
                                    draftBody: $draftBody, tokens: $tokens,
                                    indexBinding: $index,
@@ -180,7 +196,23 @@ struct ContentView: View {
                              ScriptIO.reportRejected(outcome)
                          },
                          draftBody: $draftBody,
-                         onBodyCommitted: { commit($0, for: doc.id) })
+                         onBodyCommitted: { commit($0, for: doc.id) },
+                         saveFailure: scripts.unsavedScripts.contains(doc.id)
+                            ? "Not saved — check the folder's permissions"
+                            : nil,
+                         unreadableCount: scripts.unreadableFiles.count,
+                         onRevealLibrary: { ScriptIntake.revealLibrary() },
+                         changedOnDisk: scripts.externalChanges.contains(doc.id),
+                         onAcceptDiskVersion: {
+                             scripts.acceptExternalChange(doc.id)
+                             if let body = scripts.localBody(doc.id) {
+                                 draftBody = body
+                                 adopt(body: body, preservingPosition: true)
+                             }
+                         },
+                         onKeepLocalVersion: {
+                             scripts.keepLocalVersion(doc.id)
+                         })
             } else {
                 // The empty window is the other half of the import story:
                 // a first run has no script *and* no list to put one in.
@@ -201,18 +233,57 @@ struct ContentView: View {
     }
 
     private func showDraft(_ doc: ScriptDocument) {
-        draftBody = doc.body
+        app.setDraft(doc.body, doc.id)
         adopt(body: doc.body, preservingPosition: false)
+        // "Never lose your place." Reopen where the presenter was reading rather
+        // than at the top — refused for a script edited much shorter, and for
+        // word zero, which is where a fresh script opens anyway.
+        //
+        // This was missing entirely once: `showDraft` reset the engine on every
+        // selection, so the position was recorded faithfully and never restored.
+        let words = ScriptParser.wordCount(doc.body)
+        if settings.settings.restoreLastPosition,
+           let positions = app.positions,
+           let stored = positions.position(for: doc.id),
+           let target = stored.resumeIndex(into: words) {
+            engine.jumpTo(wordIndex: target)
+        }
+    }
+
+    /// A jump the presenter made on purpose is recorded as its own position:
+    /// it is not where the prompter had got to by reading, and restoring that
+    /// instead would be wrong every time they scrolled back to re-read
+    /// something.
+    private func recordManualJump(_ wordIndex: Int, for id: UUID) {
+        app.positions?.recordManualView(
+            wordIndex: wordIndex, for: id,
+            totalWords: ScriptParser.wordCount(scripts.selected?.body ?? ""))
     }
 
     private func commit(_ body: String, for id: UUID) {
         scripts.updateBody(id, body: body)
-        adopt(body: body, preservingPosition: true)
+        // Parse once to decide whether anything the prompter reads has
+        // actually changed, rather than paying for the full re-parse twice.
+        let parsed = ScriptParser.parse(body)
+        if parsed == tokens {
+            // Identical tokens: the same words, cues and headings, so only
+            // the prose around them moved. Reloading the engine here cancelled
+            // any *running timed hold* — and a cue staged with ⌘K writes
+            // `draftBody`, which arms this debounce, so staging a `[pause 2s]`
+            // cancelled the very pause it had just written, 400 ms later.
+            // `loadScript` is what clears a hold, so not loading is the fix.
+            voice.recycle()
+            return
+        }
+        apply(parsed, body: body, preservingPosition: true)
     }
 
     /// Parse once, into the one structure everything else reads.
     private func adopt(body: String, preservingPosition: Bool) {
-        let parsed = ScriptParser.parse(body)
+        apply(ScriptParser.parse(body), body: body, preservingPosition: preservingPosition)
+    }
+
+    private func apply(_ parsed: [ScriptToken], body: String, preservingPosition: Bool) {
         tokens = parsed
         index = ScriptIndex(tokens: parsed)
         engine.loadScript(body, preservingPosition: preservingPosition)
@@ -268,11 +339,14 @@ struct ContentView: View {
         let snapshot = RemoteSnapshot(title: "", engine: engine, index: index)
         guard let target = snapshot.wordIndexForSection(offset: step, in: index) else { return }
         engine.jumpTo(wordIndex: target)
+        if let id = scripts.selectedID { recordManualJump(target, for: id) }
     }
 
     private func pick(_ id: UUID) {
         scripts.select(id)
     }
+
+
 
     private func doc(matching id: UUID) -> ScriptDocument? {
         scripts.scripts.first(where: { $0.id == id })
